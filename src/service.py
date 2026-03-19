@@ -6,7 +6,7 @@ from collections import deque
 from pathlib import Path
 
 import requests
-from flask import Flask, jsonify, render_template_string
+from flask import Flask, jsonify, render_template_string, request
 
 from bot import BotApp, load_config
 
@@ -39,9 +39,24 @@ HTML = """
       background: radial-gradient(circle at 15% 12%, #11203a 0%, var(--bg) 55%);
     }
     .wrap { max-width: 1320px; margin: 14px auto; padding: 0 12px; }
-    .head { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+    .head { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; gap: 10px; }
+    .head-right { display:flex; align-items:center; gap:8px; }
     .title { font-size: 24px; color: var(--cyan); letter-spacing: .8px; }
     .badge { border:1px solid var(--line); background: var(--soft); border-radius:10px; padding:8px 10px; color: var(--muted); }
+    .ctrl-btn {
+      border:1px solid var(--line);
+      background:#081120;
+      color:var(--text);
+      border-radius:10px;
+      padding:8px 10px;
+      cursor:pointer;
+      font-family: inherit;
+      font-size: 12px;
+    }
+    .ctrl-btn:hover { filter: brightness(1.12); }
+    .ctrl-btn.stop { border-color:#6b2a3d; color:#ff9cb0; }
+    .ctrl-btn.start { border-color:#175f49; color:#87f5cf; }
+    .ctrl-btn.emergency { border-color:#7c1e2a; color:#ff7f95; background:#1a0a0f; }
 
     .kpi { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
     .pill { border:1px solid var(--line); background:#081120; border-radius:10px; padding:8px 10px; min-width: 140px; }
@@ -92,7 +107,12 @@ HTML = """
   <div class=\"wrap\">
     <div class=\"head\">
       <div class=\"title\">AIG // LIVE TRADER DASHBOARD</div>
-      <div id=\"stamp\" class=\"badge\">loading...</div>
+      <div class=\"head-right\">
+        <button class=\"ctrl-btn start\" onclick=\"control('start')\">START</button>
+        <button class=\"ctrl-btn stop\" onclick=\"control('stop')\">STOP</button>
+        <button class=\"ctrl-btn emergency\" onclick=\"control('emergency-close')\">EMERGENCY CLOSE</button>
+        <div id=\"stamp\" class=\"badge\">loading...</div>
+      </div>
     </div>
 
     <div class=\"kpi\" id=\"kpi\"></div>
@@ -320,13 +340,23 @@ async function refresh(){
   const hs = await fetch('/api/history?limit=220').then(r=>r.json());
   const ob = await fetch('/api/orderbook').then(r=>r.json()).catch(()=>({}));
   latest = s; history = hs;
-  document.getElementById('stamp').textContent = `tick ${s.tick ?? '-'} | ${s.mode ?? '-'} | ${s.trading_venue ?? '-'} | budget $${fmt(s.budget_usd ?? s.starting_cash ?? 0,2)} | entry $${fmt(s.fixed_trade_usd ?? 0,2)} | llm-exit ${s.llm_exit_control ? 'on' : 'off'}`;
+  document.getElementById('stamp').textContent = `tick ${s.tick ?? '-'} | ${s.mode ?? '-'} | ${s.trading_venue ?? '-'} | ${(s.engine_running ? 'RUNNING' : 'PAUSED')} | budget $${fmt(s.budget_usd ?? s.starting_cash ?? 0,2)} | entry $${fmt(s.fixed_trade_usd ?? 0,2)} | llm-exit ${s.llm_exit_control ? 'on' : 'off'}`;
   renderKPIs(s);
   renderSignals(s);
   renderPositions(s);
   renderOrderBook(ob, s);
   renderFeed(ev);
   drawCurve();
+}
+
+async function control(action){
+  const r = await fetch(`/api/control/${action}`, {method: 'POST'}).then(x=>x.json()).catch(()=>({ok:false}));
+  if(r && r.ok){
+    addToast('entry', `CONTROL: ${action.toUpperCase()} OK`);
+  } else {
+    addToast('exit', `CONTROL FAIL: ${action.toUpperCase()}`);
+  }
+  refresh();
 }
 
 initFlow();
@@ -369,15 +399,35 @@ def create_service():
     bot = BotApp(cfg)
     app = Flask(__name__)
     history = deque(maxlen=int(os.getenv("HISTORY_MAX", "500")))
+    engine_running = {"value": True}
+    op_lock = threading.Lock()
+
+    def close_all_positions(reason: str = "manual_emergency_close"):
+        prices = {s.symbol: s.price for s in bot.last_signals} if bot.last_signals else {}
+        if not prices:
+            try:
+                signals = bot.scan_markets()
+                prices = {s.symbol: s.price for s in signals}
+            except Exception:
+                prices = {}
+        for symbol, pos in list(bot.portfolio.positions.items()):
+            mark = prices.get(symbol, pos.entry_price)
+            if pos.side == "SHORT":
+                bot.execute_close_short(symbol, pos.qty, mark, reason)
+            else:
+                bot.execute_exit(symbol, pos.qty, mark, reason)
+        bot.write_cycle_report(prices)
 
     def runner():
         while True:
             start = time.time()
             try:
-                bot.step()
-                state = read_json(bot.logs_dir / "latest_cycle.json", {})
-                if state:
-                    history.append(state)
+                if engine_running["value"]:
+                    with op_lock:
+                        bot.step()
+                        state = read_json(bot.logs_dir / "latest_cycle.json", {})
+                        if state:
+                            history.append(state)
             except Exception as e:
                 bot.log(f"runtime error: {e}")
             elapsed = time.time() - start
@@ -394,7 +444,10 @@ def create_service():
     @app.get("/api/state")
     def state():
         p = bot.logs_dir / "latest_cycle.json"
-        return jsonify(read_json(p, {"mode": cfg.mode, "trading_venue": cfg.trading_venue}))
+        data = read_json(p, {"mode": cfg.mode, "trading_venue": cfg.trading_venue})
+        data["engine_running"] = engine_running["value"]
+        data["kill_switch"] = bot.kill_switch
+        return jsonify(data)
 
     @app.get("/api/events")
     def events():
@@ -456,6 +509,27 @@ def create_service():
     @app.get("/api/health")
     def api_health():
         return jsonify({"ok": True})
+
+    @app.post("/api/control/start")
+    def api_control_start():
+        with op_lock:
+            engine_running["value"] = True
+            bot.kill_switch = False
+        return jsonify({"ok": True, "engine_running": True, "kill_switch": bot.kill_switch})
+
+    @app.post("/api/control/stop")
+    def api_control_stop():
+        with op_lock:
+            engine_running["value"] = False
+        return jsonify({"ok": True, "engine_running": False, "kill_switch": bot.kill_switch})
+
+    @app.post("/api/control/emergency-close")
+    def api_control_emergency_close():
+        with op_lock:
+            engine_running["value"] = False
+            bot.kill_switch = True
+            close_all_positions("manual_emergency_close")
+        return jsonify({"ok": True, "engine_running": False, "kill_switch": True})
 
     return app
 
