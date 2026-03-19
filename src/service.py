@@ -4,6 +4,7 @@ import threading
 import time
 from collections import deque
 from pathlib import Path
+from typing import Any, Dict, Optional
 
 import requests
 from flask import Flask, jsonify, render_template_string, request
@@ -177,6 +178,7 @@ HTML = """
         <div class=\"label\">TOTAL BALANCE</div>
         <div id=\"heroBalance\" class=\"val\">$0.00</div>
         <div id=\"heroSub\" class=\"sub\">budget $0.00 | pnl $0.00</div>
+        <div id=\"heroChain\" class=\"sub\">chain wallet: loading...</div>
       </div>
       <div id=\"heroMode\" class=\"mode\">MODE: -</div>
     </div>
@@ -223,6 +225,7 @@ HTML = """
 const seen = new Set();
 let history = [];
 let latest = {};
+let liveBalance = {};
 const flow = { particles: [] };
 let staleCount = 0;
 
@@ -255,6 +258,10 @@ function renderKPIs(s){
   const eq = Number(s.equity||0);
   document.getElementById('heroBalance').textContent = `$${fmt(eq,2)}`;
   document.getElementById('heroSub').textContent = `budget $${fmt(s.budget_usd ?? s.starting_cash,2)} | total pnl ${(totalPnl>=0?'+':'')}$${fmt(totalPnl,2)} | roi ${roi}`;
+  const chainTxt = liveBalance && liveBalance.ok
+    ? `chain wallet ≈ $${fmt(liveBalance.total_usd_estimate,2)} | SOL ${fmt(liveBalance.sol_balance,4)} | USDC ${fmt(liveBalance.usdc_balance,2)}`
+    : `chain wallet: unavailable`;
+  document.getElementById('heroChain').textContent = chainTxt;
   document.getElementById('heroMode').textContent = `MODE: ${(s.mode||'paper').toUpperCase()} | ${(s.trading_venue||'-')}`;
   kpi.innerHTML = `
     <div class='pill'><div class='k'>STARTING BUDGET</div><div class='v'>$${fmt(s.starting_cash ?? s.budget_usd,2)}</div></div>
@@ -374,6 +381,22 @@ function drawCurve(){
 function initFlow(){
   const c = document.getElementById('flowCanvas');
   const ctx = c.getContext('2d');
+  const stars = [];
+  const nodes = [];
+  function initScene(){
+    const w = c.clientWidth || 1200;
+    const h = c.clientHeight || 500;
+    stars.length = 0;
+    nodes.length = 0;
+    for(let i=0;i<180;i++){
+      stars.push({x:Math.random()*w,y:Math.random()*h,r:Math.random()*1.8+0.3,a:Math.random()*0.45+0.1,v:(Math.random()*0.3)+0.05});
+    }
+    for(let i=0;i<44;i++){
+      nodes.push({x:w*(0.18+Math.random()*0.44),y:h*(0.12+Math.random()*0.76),vx:(Math.random()-0.5)*0.22,vy:(Math.random()-0.5)*0.22});
+    }
+  }
+  initScene();
+  window.addEventListener('resize', ()=>initScene());
   function spawn(){
     const score = ((latest.top_signals||[])[0]||{}).score || 0;
     const conf = ((latest.top_signals||[])[0]||{}).confidence || 0.5;
@@ -386,6 +409,42 @@ function initFlow(){
     const w = c.width = c.clientWidth; const h = c.height = c.clientHeight;
     ctx.fillStyle = 'rgba(255,250,240,0.20)';
     ctx.fillRect(0,0,w,h);
+
+    // Star field
+    for(const s of stars){
+      s.y += s.v * 0.35;
+      if(s.y > h+2) s.y = -2;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r, 0, Math.PI*2);
+      ctx.fillStyle = `rgba(130,100,70,${s.a})`;
+      ctx.fill();
+    }
+
+    // Node mesh
+    for(const n of nodes){
+      n.x += n.vx; n.y += n.vy;
+      if(n.x < w*0.1 || n.x > w*0.72) n.vx *= -1;
+      if(n.y < h*0.08 || n.y > h*0.92) n.vy *= -1;
+    }
+    for(let i=0;i<nodes.length;i++){
+      const a = nodes[i];
+      for(let j=i+1;j<nodes.length;j++){
+        const b = nodes[j];
+        const dx = a.x-b.x, dy = a.y-b.y;
+        const d2 = dx*dx+dy*dy;
+        if(d2 < 4200){
+          const alpha = Math.max(0, 0.18 - d2/4200*0.18);
+          ctx.strokeStyle = `rgba(145,114,78,${alpha})`;
+          ctx.lineWidth = 0.8;
+          ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+        }
+      }
+    }
+    for(const n of nodes){
+      ctx.beginPath(); ctx.arc(n.x,n.y,1.7,0,Math.PI*2);
+      ctx.fillStyle = 'rgba(110,82,54,0.75)';
+      ctx.fill();
+    }
 
     const score = ((latest.top_signals||[])[0]||{}).score || 0;
     const good = score >= 0;
@@ -404,6 +463,20 @@ function initFlow(){
       ctx.stroke();
     });
     flow.particles = flow.particles.filter(p => p.x < w+30 && p.y > -30 && p.y < h+30 && p.life > 0.06);
+
+    // Directional beam toward orderbook side
+    const beamX0 = 90;
+    const beamY0 = h/2;
+    const beamX1 = w*0.95;
+    const beamSpread = 90 + Math.min(180, Math.abs(score)*1400);
+    ctx.strokeStyle = good ? 'rgba(47,158,98,0.08)' : 'rgba(194,79,79,0.08)';
+    for(let k=0;k<16;k++){
+      ctx.beginPath();
+      ctx.moveTo(beamX0, beamY0);
+      const yy = beamY0 + (k/15 - 0.5)*beamSpread;
+      ctx.lineTo(beamX1, yy);
+      ctx.stroke();
+    }
 
     const grad = ctx.createRadialGradient(38, h/2, 4, 38, h/2, 24);
     grad.addColorStop(0, 'rgba(245,183,66,0.95)');
@@ -425,8 +498,9 @@ async function refresh(){
       fetch('/api/events?limit=60').then(r=>r.json()),
       fetch('/api/history?limit=220').then(r=>r.json()),
       fetch('/api/orderbook').then(r=>r.json()).catch(()=>({})),
+      fetch('/api/wallet-balance').then(r=>r.json()).catch(()=>({ok:false})),
     ]);
-    s = rs[0]; ev = rs[1]; hs = rs[2]; ob = rs[3];
+    s = rs[0]; ev = rs[1]; hs = rs[2]; ob = rs[3]; liveBalance = rs[4];
     staleCount = 0;
     setAlert('');
   } catch (e){
@@ -522,6 +596,59 @@ def create_service():
     history = deque(maxlen=int(os.getenv("HISTORY_MAX", "500")))
     engine_running = {"value": True}
     op_lock = threading.Lock()
+
+    def _rpc_urls() -> list[str]:
+        urls = []
+        if cfg.solana_rpc_url:
+            urls.append(cfg.solana_rpc_url)
+        if cfg.solana_rpc_fallback_urls:
+            urls.extend([u for u in cfg.solana_rpc_fallback_urls if u and u not in urls])
+        return urls
+
+    def _rpc_call(method: str, params: list[Any]) -> Optional[Dict[str, Any]]:
+        body = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
+        for u in _rpc_urls():
+            try:
+                r = requests.post(u, json=body, timeout=8)
+                r.raise_for_status()
+                data = r.json()
+                if "error" in data:
+                    continue
+                return data.get("result")
+            except Exception:
+                continue
+        return None
+
+    def _get_sol_balance(address: str) -> float:
+        result = _rpc_call("getBalance", [address, {"commitment": "confirmed"}]) or {}
+        lamports = (result.get("value") or 0) if isinstance(result, dict) else 0
+        try:
+            return float(lamports) / 1_000_000_000
+        except Exception:
+            return 0.0
+
+    def _get_token_balance(owner: str, mint: str) -> float:
+        result = _rpc_call(
+            "getTokenAccountsByOwner",
+            [owner, {"mint": mint}, {"encoding": "jsonParsed", "commitment": "confirmed"}],
+        ) or {}
+        total = 0.0
+        for row in result.get("value", []) if isinstance(result, dict) else []:
+            try:
+                amount = row["account"]["data"]["parsed"]["info"]["tokenAmount"]["uiAmount"]
+                total += float(amount or 0.0)
+            except Exception:
+                continue
+        return total
+
+    def _sol_usd_price() -> float:
+        try:
+            r = requests.get("https://price.jup.ag/v6/price", params={"ids": "SOL"}, timeout=6)
+            r.raise_for_status()
+            data = r.json().get("data", {}).get("SOL", {})
+            return float(data.get("price") or 0.0)
+        except Exception:
+            return 0.0
 
     def close_all_positions(reason: str = "manual_emergency_close"):
         prices = {s.symbol: s.price for s in bot.last_signals} if bot.last_signals else {}
@@ -623,6 +750,30 @@ def create_service():
                     "ts": int(time.time()),
                 }
             )
+
+    @app.get("/api/wallet-balance")
+    def api_wallet_balance():
+        owner = cfg.solana_wallet_address
+        if not owner:
+            return jsonify({"ok": False, "error": "SOLANA_WALLET_ADDRESS not configured"})
+        try:
+            sol = _get_sol_balance(owner)
+            usdc = _get_token_balance(owner, cfg.solana_quote_mint)
+            sol_px = _sol_usd_price()
+            total_usd = usdc + (sol * sol_px)
+            return jsonify(
+                {
+                    "ok": True,
+                    "wallet_address": owner,
+                    "sol_balance": sol,
+                    "usdc_balance": usdc,
+                    "sol_usd_price": sol_px,
+                    "total_usd_estimate": total_usd,
+                    "ts": int(time.time()),
+                }
+            )
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e), "ts": int(time.time())})
 
     @app.get("/healthz")
     def healthz():
