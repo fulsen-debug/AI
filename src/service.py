@@ -116,7 +116,7 @@ HTML = """
     .card h3 { margin:2px 0 8px; color: var(--amber); font-size:14px; letter-spacing:.6px; }
 
     .chart-wrap { position:relative; height:260px; border:1px solid #e4c990; border-radius:10px; background:#fffef8; overflow:hidden; }
-    .signal-chart-wrap { height: clamp(500px, 64vh, 760px); }
+    .signal-chart-wrap { height: clamp(560px, 72vh, 860px); }
     canvas { display:block; width:100%; height:100%; }
 
     .right-grid { display:grid; grid-template-rows: 1fr 1fr; gap:10px; }
@@ -226,7 +226,7 @@ const seen = new Set();
 let history = [];
 let latest = {};
 let liveBalance = {};
-const flow = { particles: [] };
+const flow = { particles: [], tradeBursts: [] };
 let staleCount = 0;
 
 function fmt(n, d=4){ return (typeof n === 'number') ? n.toLocaleString(undefined,{maximumFractionDigits:d}) : '-'; }
@@ -239,6 +239,24 @@ function addToast(kind, msg){
   d.textContent = msg;
   box.prepend(d);
   setTimeout(()=>d.remove(), 6500);
+}
+
+function spawnTradeBurst(label, side){
+  const c = document.getElementById('flowCanvas');
+  if(!c) return;
+  const h = c.clientHeight || 500;
+  const yBase = side === 'BUY' || side === 'COVER' ? h*0.42 : h*0.58;
+  for(let i=0;i<22;i++){
+    flow.tradeBursts.push({
+      x: 44 + Math.random()*28,
+      y: yBase + (Math.random()-0.5)*44,
+      vx: 4.2 + Math.random()*4.8,
+      vy: (Math.random()-0.5)*1.2,
+      life: 1,
+      label,
+      side,
+    });
+  }
 }
 
 function setAlert(msg){
@@ -256,7 +274,9 @@ function renderKPIs(s){
   const totalPnl = s.total_pnl ?? ((s.realized_pnl||0) + (s.unrealized_pnl||0));
   const roi = ((s.roi_pct||0)*100).toFixed(2) + '%';
   const eq = Number(s.equity||0);
-  document.getElementById('heroBalance').textContent = `$${fmt(eq,2)}`;
+  const useChain = String((s.mode||'paper')).toLowerCase() === 'live' && liveBalance && liveBalance.ok;
+  const shownBalance = useChain ? Number(liveBalance.total_usd_estimate||0) : eq;
+  document.getElementById('heroBalance').textContent = `$${fmt(shownBalance,2)}`;
   document.getElementById('heroSub').textContent = `budget $${fmt(s.budget_usd ?? s.starting_cash,2)} | total pnl ${(totalPnl>=0?'+':'')}$${fmt(totalPnl,2)} | roi ${roi}`;
   const chainTxt = liveBalance && liveBalance.ok
     ? `chain wallet ≈ $${fmt(liveBalance.total_usd_estimate,2)} | SOL ${fmt(liveBalance.sol_balance,4)} | USDC ${fmt(liveBalance.usdc_balance,2)}`
@@ -348,6 +368,10 @@ function renderFeed(events){
     if(e.event && (e.event.includes('entry') || e.event.includes('exit'))){
       const kind = e.event.includes('entry') ? 'entry' : 'exit';
       addToast(kind, `${e.event.toUpperCase()} ${(e.payload&&e.payload.symbol)||''} ${(e.payload&&e.payload.reason)||''}`);
+    }
+    const fillSide = (((e.payload||{}).fill||{}).side || '').toUpperCase();
+    if(fillSide){
+      spawnTradeBurst(fillSide, fillSide);
     }
   });
 }
@@ -448,7 +472,7 @@ function initFlow(){
 
     const score = ((latest.top_signals||[])[0]||{}).score || 0;
     const good = score >= 0;
-    for(let i=0;i<6;i++) spawn();
+    for(let i=0;i<8;i++) spawn();
 
     flow.particles.forEach(p=>{
       p.x += p.vx;
@@ -462,13 +486,32 @@ function initFlow(){
       ctx.lineWidth = 1;
       ctx.stroke();
     });
-    flow.particles = flow.particles.filter(p => p.x < w+30 && p.y > -30 && p.y < h+30 && p.life > 0.06);
+    flow.particles = flow.particles.filter(p => p.x < w+30 && p.y > -30 && p.y < h+30 && p.life > 0.04);
+
+    // Trade bursts: explicit BUY/SELL floaters when real fills happen.
+    flow.tradeBursts.forEach(t=>{
+      t.x += t.vx;
+      t.y += t.vy;
+      t.vy *= 0.99;
+      t.life *= 0.986;
+      const isBuy = t.side === 'BUY' || t.side === 'COVER';
+      ctx.fillStyle = isBuy ? `rgba(47,158,98,${t.life*0.95})` : `rgba(194,79,79,${t.life*0.95})`;
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, 2.4, 0, Math.PI*2);
+      ctx.fill();
+      if(t.life > 0.65){
+        ctx.font = 'bold 11px ui-monospace, monospace';
+        ctx.fillStyle = isBuy ? `rgba(47,158,98,${t.life})` : `rgba(194,79,79,${t.life})`;
+        ctx.fillText(t.label, t.x + 5, t.y - 4);
+      }
+    });
+    flow.tradeBursts = flow.tradeBursts.filter(t => t.life > 0.08 && t.x < w+60 && t.y > -40 && t.y < h+40);
 
     // Directional beam toward orderbook side
     const beamX0 = 90;
     const beamY0 = h/2;
-    const beamX1 = w*0.95;
-    const beamSpread = 90 + Math.min(180, Math.abs(score)*1400);
+    const beamX1 = w*0.985;
+    const beamSpread = 130 + Math.min(240, Math.abs(score)*1700);
     ctx.strokeStyle = good ? 'rgba(47,158,98,0.08)' : 'rgba(194,79,79,0.08)';
     for(let k=0;k<16;k++){
       ctx.beginPath();
@@ -643,12 +686,29 @@ def create_service():
 
     def _sol_usd_price() -> float:
         try:
-            r = requests.get("https://price.jup.ag/v6/price", params={"ids": "SOL"}, timeout=6)
+            r = requests.get(
+                "https://price.jup.ag/v6/price",
+                params={"ids": "So11111111111111111111111111111111111111112"},
+                timeout=6,
+            )
             r.raise_for_status()
-            data = r.json().get("data", {}).get("SOL", {})
-            return float(data.get("price") or 0.0)
+            data = r.json().get("data", {})
+            row = data.get("SOL") or data.get("So11111111111111111111111111111111111111112") or {}
+            px = float(row.get("price") or 0.0)
+            if px > 0:
+                return px
         except Exception:
-            return 0.0
+            pass
+        # Fallback to latest scanned SOL signal price if Jupiter price API is unavailable.
+        try:
+            for s in bot.last_signals:
+                if str(getattr(s, "symbol", "")).upper() == "SOL":
+                    p = float(getattr(s, "price", 0.0) or 0.0)
+                    if p > 0:
+                        return p
+        except Exception:
+            pass
+        return 0.0
 
     def close_all_positions(reason: str = "manual_emergency_close"):
         prices = {s.symbol: s.price for s in bot.last_signals} if bot.last_signals else {}
