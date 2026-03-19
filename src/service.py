@@ -20,51 +20,65 @@ HTML = """
   <title>AIG Live Dashboard</title>
   <style>
     :root {
-      --bg: #060a11;
-      --card: #0d1422;
-      --line: #1a2a42;
-      --soft: #0a1220;
-      --text: #d9e8ff;
-      --muted: #86a3c8;
-      --cyan: #59d7ff;
-      --green: #3af0ad;
-      --red: #ff5e7a;
-      --amber: #ffbc54;
+      --bg: #f3ead0;
+      --card: #fff9ea;
+      --line: #e2c889;
+      --soft: #fff5df;
+      --text: #4b2d1f;
+      --muted: #8c6f4e;
+      --cyan: #cf5f3f;
+      --green: #2f9e62;
+      --red: #c24f4f;
+      --amber: #d08f2d;
+      --coffee: #6b4a2d;
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
       color: var(--text);
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      background: radial-gradient(circle at 15% 12%, #11203a 0%, var(--bg) 55%);
+      font-family: "Trebuchet MS", "Segoe UI", Tahoma, sans-serif;
+      background:
+        radial-gradient(circle at 12% 14%, rgba(255,255,255,.7) 0%, rgba(255,255,255,0) 40%),
+        radial-gradient(circle at 86% 10%, rgba(255,214,140,.32) 0%, rgba(255,214,140,0) 45%),
+        linear-gradient(180deg, #f7edd2 0%, var(--bg) 100%);
     }
-    .wrap { max-width: 1320px; margin: 14px auto; padding: 0 12px; }
+    .wrap { width: 100vw; max-width: none; margin: 8px auto; padding: 0 16px 16px; }
     .head { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; gap: 10px; }
     .head-right { display:flex; align-items:center; gap:8px; }
-    .title { font-size: 24px; color: var(--cyan); letter-spacing: .8px; }
-    .badge { border:1px solid var(--line); background: var(--soft); border-radius:10px; padding:8px 10px; color: var(--muted); }
+    .title { font-size: 30px; color: var(--coffee); letter-spacing: .5px; font-weight: 700; }
+    .badge { border:1px solid var(--line); background: var(--soft); border-radius:10px; padding:8px 10px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
     .ctrl-btn {
       border:1px solid var(--line);
-      background:#081120;
-      color:var(--text);
+      background: #fff3d5;
+      color: var(--coffee);
       border-radius:10px;
       padding:8px 10px;
       cursor:pointer;
       font-family: inherit;
       font-size: 12px;
+      font-weight: 700;
     }
     .ctrl-btn:hover { filter: brightness(1.12); }
-    .ctrl-btn.stop { border-color:#6b2a3d; color:#ff9cb0; }
-    .ctrl-btn.start { border-color:#175f49; color:#87f5cf; }
-    .ctrl-btn.emergency { border-color:#7c1e2a; color:#ff7f95; background:#1a0a0f; }
+    .ctrl-btn.stop { border-color:#be6a5f; color:#8f2f2f; }
+    .ctrl-btn.start { border-color:#4f965f; color:#246a3a; }
+    .ctrl-btn.emergency { border-color:#a43f3f; color:#fff4f4; background:#be4d4d; }
+    .mode-select {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fffdf5;
+      color: var(--coffee);
+      padding: 8px;
+      font-size: 12px;
+      font-weight: 700;
+    }
 
     .kpi { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
-    .pill { border:1px solid var(--line); background:#081120; border-radius:10px; padding:8px 10px; min-width: 140px; }
+    .pill { border:1px solid var(--line); background:#fff7e7; border-radius:10px; padding:8px 10px; min-width: 140px; }
     .pill .k { color: var(--muted); font-size:11px; }
-    .pill .v { color: var(--cyan); font-size:15px; margin-top:2px; }
+    .pill .v { color: var(--coffee); font-size:16px; margin-top:2px; font-weight: 700; }
     .hero {
-      border:1px solid #214068;
-      background: linear-gradient(120deg, #0b1a2f, #0a1323);
+      border:1px solid var(--line);
+      background: linear-gradient(120deg, #fff6df, #fff1cf);
       border-radius:12px;
       padding:14px;
       margin-bottom:10px;
@@ -72,57 +86,60 @@ HTML = """
       justify-content:space-between;
       align-items:center;
       gap:10px;
+      box-shadow: 0 8px 20px rgba(179, 128, 31, 0.12);
+      animation: glow 3s ease-in-out infinite alternate;
     }
     .hero .label { color: var(--muted); font-size:12px; }
-    .hero .val { color: #b7f5ff; font-size:34px; font-weight:700; letter-spacing:.5px; }
+    .hero .val { color: #6b3a24; font-size:42px; font-weight:800; letter-spacing:.2px; }
     .hero .sub { color: var(--muted); font-size:12px; margin-top:4px; }
     .hero .mode {
-      border:1px solid #325277;
+      border:1px solid var(--line);
       border-radius:10px;
       padding:8px 10px;
       font-size:12px;
-      color:#d7eeff;
-      background:#0a1628;
+      color: var(--coffee);
+      background:#fff8ea;
     }
     .alert {
-      border:1px solid #6b2a3d;
-      background:#1c0d14;
-      color:#ffb7c6;
+      border:1px solid #d59e4f;
+      background:#fff3d8;
+      color:#7b4a16;
       border-radius:10px;
       padding:8px 10px;
       margin-bottom:10px;
       display:none;
     }
 
-    .layout { display:grid; grid-template-columns: 1.25fr .75fr; gap:10px; }
-    .card { border:1px solid var(--line); border-radius:12px; background: linear-gradient(180deg, #0d1422, #0b111d); padding:10px; }
+    .layout { display:grid; grid-template-columns: minmax(0, 1.6fr) minmax(340px, .8fr); gap:10px; }
+    .card { border:1px solid var(--line); border-radius:12px; background: linear-gradient(180deg, #fffbf1, #fff6e6); padding:10px; box-shadow: 0 5px 12px rgba(179, 128, 31, 0.08);}
     .card h3 { margin:2px 0 8px; color: var(--amber); font-size:14px; letter-spacing:.6px; }
 
-    .chart-wrap { position:relative; height:260px; border:1px solid #16243b; border-radius:10px; background:#050c18; overflow:hidden; }
-    .signal-chart-wrap { height:420px; }
+    .chart-wrap { position:relative; height:260px; border:1px solid #e4c990; border-radius:10px; background:#fffef8; overflow:hidden; }
+    .signal-chart-wrap { height: clamp(500px, 64vh, 760px); }
     canvas { display:block; width:100%; height:100%; }
 
     .right-grid { display:grid; grid-template-rows: 1fr 1fr; gap:10px; }
 
     table { width:100%; border-collapse:collapse; font-size:12px; }
-    th, td { padding:7px 6px; border-bottom:1px solid #17253a; text-align:left; }
+    th, td { padding:7px 6px; border-bottom:1px solid #efdeb8; text-align:left; }
     th { color: var(--muted); font-weight:600; }
 
     .depth { display:grid; grid-template-columns: 1fr 1fr; gap:8px; }
-    .book { border:1px solid #16243b; border-radius:10px; padding:6px; background:#08111d; }
+    .book { border:1px solid #e8cf9d; border-radius:10px; padding:6px; background:#fff9ea; }
     .row { position:relative; display:flex; justify-content:space-between; font-size:12px; padding:4px 6px; margin:2px 0; overflow:hidden; }
     .row span { position:relative; z-index:1; }
     .row::before { content:''; position:absolute; inset:0; opacity:.28; }
-    .ask::before { background: linear-gradient(90deg, rgba(255,94,122,.65), transparent); }
-    .bid::before { background: linear-gradient(90deg, rgba(58,240,173,.65), transparent); }
+    .ask::before { background: linear-gradient(90deg, rgba(194,79,79,.48), transparent); }
+    .bid::before { background: linear-gradient(90deg, rgba(47,158,98,.48), transparent); }
 
-    .feed { height:220px; overflow:auto; border:1px solid #16243b; border-radius:10px; background:#07101b; padding:8px; font-size:12px; }
+    .feed { height:220px; overflow:auto; border:1px solid #e8cf9d; border-radius:10px; background:#fff8e8; padding:8px; font-size:12px; }
 
     .floaters { position: fixed; top: 14px; right: 14px; z-index: 20; display:flex; flex-direction:column; gap:8px; }
-    .toast { min-width:260px; border-radius:10px; border:1px solid var(--line); background:#0c1728; padding:10px 12px; animation: pop .24s ease-out; }
-    .toast.entry { border-color:#175f49; box-shadow:0 0 0 1px #103b2e inset; }
-    .toast.exit { border-color:#6b2a3d; box-shadow:0 0 0 1px #3a1621 inset; }
+    .toast { min-width:260px; border-radius:10px; border:1px solid var(--line); background:#fff7e4; padding:10px 12px; animation: pop .24s ease-out; color:#5d3e24; }
+    .toast.entry { border-color:#4f965f; box-shadow:0 0 0 1px #abd8b6 inset; }
+    .toast.exit { border-color:#be6a5f; box-shadow:0 0 0 1px #f0c6bf inset; }
     @keyframes pop { from { opacity:0; transform:translateY(-6px);} to { opacity:1; transform:translateY(0);} }
+    @keyframes glow { from { box-shadow: 0 8px 20px rgba(179, 128, 31, 0.09);} to { box-shadow: 0 12px 28px rgba(179, 128, 31, 0.18);} }
 
     .g { color: var(--green); }
     .r { color: var(--red); }
@@ -130,6 +147,9 @@ HTML = """
     @media (max-width: 960px) {
       .layout { grid-template-columns: 1fr; }
       .right-grid { grid-template-rows: auto auto; }
+      .signal-chart-wrap { height: 420px; }
+      .head { flex-direction: column; align-items: flex-start; }
+      .head-right { flex-wrap: wrap; }
     }
   </style>
 </head>
@@ -140,6 +160,11 @@ HTML = """
     <div class=\"head\">
       <div class=\"title\">AIG // LIVE TRADER DASHBOARD</div>
       <div class=\"head-right\">
+        <select id=\"modeSelect\" class=\"mode-select\">
+          <option value=\"paper\">PAPER</option>
+          <option value=\"live\">LIVE</option>
+        </select>
+        <button class=\"ctrl-btn\" onclick=\"switchMode()\">APPLY MODE</button>
         <button class=\"ctrl-btn start\" onclick=\"control('start')\">START</button>
         <button class=\"ctrl-btn stop\" onclick=\"control('stop')\">STOP</button>
         <button class=\"ctrl-btn emergency\" onclick=\"control('emergency-close')\">EMERGENCY CLOSE</button>
@@ -325,13 +350,13 @@ function drawCurve(){
   const ctx = c.getContext('2d');
   const w = c.width = c.clientWidth; const h = c.height = c.clientHeight;
   ctx.clearRect(0,0,w,h);
-  ctx.fillStyle = '#050c18'; ctx.fillRect(0,0,w,h);
+  ctx.fillStyle = '#fffdf6'; ctx.fillRect(0,0,w,h);
   if(history.length < 2) return;
   const eq = history.map(x => x.equity || 0);
   const min = Math.min(...eq), max = Math.max(...eq);
   const span = Math.max(0.0001, max-min);
 
-  ctx.strokeStyle = '#1f2c43'; ctx.lineWidth = 1;
+  ctx.strokeStyle = '#ebd7aa'; ctx.lineWidth = 1;
   for(let i=1;i<4;i++){ const y = (h/4)*i; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); }
 
   ctx.beginPath();
@@ -341,7 +366,7 @@ function drawCurve(){
     if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
   });
   const up = eq[eq.length-1] >= eq[0];
-  ctx.strokeStyle = up ? '#3af0ad' : '#ff5e7a';
+  ctx.strokeStyle = up ? '#2f9e62' : '#c24f4f';
   ctx.lineWidth = 2.2;
   ctx.stroke();
 }
@@ -353,35 +378,40 @@ function initFlow(){
     const score = ((latest.top_signals||[])[0]||{}).score || 0;
     const conf = ((latest.top_signals||[])[0]||{}).confidence || 0.5;
     const sign = score >= 0 ? 1 : -1;
-    const speed = 1.1 + Math.abs(score)*150 + conf*1.2;
-    flow.particles.push({x: 30, y: c.clientHeight/2 + (Math.random()-0.5)*20, vx: speed, vy: (Math.random()-0.5)*0.6 + sign*0.08, life: 1});
-    if(flow.particles.length > 220) flow.particles.shift();
+    const speed = 2.6 + Math.abs(score)*320 + conf*3.2;
+    flow.particles.push({x: 38, y: c.clientHeight/2 + (Math.random()-0.5)*36, vx: speed, vy: (Math.random()-0.5)*0.9 + sign*0.12, life: 1});
+    if(flow.particles.length > 460) flow.particles.shift();
   }
   function tick(){
     const w = c.width = c.clientWidth; const h = c.height = c.clientHeight;
-    ctx.fillStyle = 'rgba(5,12,24,0.22)';
+    ctx.fillStyle = 'rgba(255,250,240,0.20)';
     ctx.fillRect(0,0,w,h);
 
     const score = ((latest.top_signals||[])[0]||{}).score || 0;
     const good = score >= 0;
-    for(let i=0;i<3;i++) spawn();
+    for(let i=0;i<6;i++) spawn();
 
     flow.particles.forEach(p=>{
       p.x += p.vx;
       p.y += p.vy;
-      p.vy += (Math.random()-0.5)*0.02;
-      p.life *= 0.995;
+      p.vy += (Math.random()-0.5)*0.03;
+      p.life *= 0.998;
       ctx.beginPath();
       ctx.moveTo(p.x, p.y);
-      ctx.lineTo(p.x - p.vx*2.6, p.y - p.vy*2.6);
-      ctx.strokeStyle = good ? `rgba(58,240,173,${p.life*0.7})` : `rgba(255,94,122,${p.life*0.7})`;
+      ctx.lineTo(p.x - p.vx*3.4, p.y - p.vy*3.4);
+      ctx.strokeStyle = good ? `rgba(47,158,98,${p.life*0.72})` : `rgba(194,79,79,${p.life*0.72})`;
       ctx.lineWidth = 1;
       ctx.stroke();
     });
-    flow.particles = flow.particles.filter(p => p.x < w+20 && p.y > -20 && p.y < h+20 && p.life > 0.07);
+    flow.particles = flow.particles.filter(p => p.x < w+30 && p.y > -30 && p.y < h+30 && p.life > 0.06);
 
-    ctx.fillStyle = '#d0dbff';
-    ctx.beginPath(); ctx.arc(28, h/2, 7, 0, Math.PI*2); ctx.fill();
+    const grad = ctx.createRadialGradient(38, h/2, 4, 38, h/2, 24);
+    grad.addColorStop(0, 'rgba(245,183,66,0.95)');
+    grad.addColorStop(1, 'rgba(245,183,66,0.08)');
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.arc(38, h/2, 24, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#fff5dc';
+    ctx.beginPath(); ctx.arc(38, h/2, 7, 0, Math.PI*2); ctx.fill();
     requestAnimationFrame(tick);
   }
   tick();
@@ -405,6 +435,8 @@ async function refresh(){
     return;
   }
   latest = s; history = hs;
+  const ms = document.getElementById('modeSelect');
+  if(ms && s.mode && ms.value !== s.mode) ms.value = s.mode;
   document.getElementById('stamp').textContent = `tick ${s.tick ?? '-'} | ${s.mode ?? '-'} | ${s.trading_venue ?? '-'} | ${(s.engine_running ? 'RUNNING' : 'PAUSED')} | budget $${fmt(s.budget_usd ?? s.starting_cash ?? 0,2)} | entry $${fmt(s.fixed_trade_usd ?? 0,2)} | llm-exit ${s.llm_exit_control ? 'on' : 'off'}`;
   renderKPIs(s);
   renderSignals(s);
@@ -422,6 +454,28 @@ async function control(action){
   } else {
     addToast('exit', `CONTROL FAIL: ${action.toUpperCase()}`);
     setAlert(`Control action failed: ${action}`);
+  }
+  refresh();
+}
+
+async function switchMode(){
+  const el = document.getElementById('modeSelect');
+  const mode = (el && el.value) ? el.value : 'paper';
+  if(mode === 'live'){
+    const ok = confirm('Switch to LIVE mode and allow real execution?');
+    if(!ok) return;
+  }
+  const r = await fetch('/api/control/mode', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({mode}),
+  }).then(x=>x.json()).catch(()=>({ok:false}));
+  if(r && r.ok){
+    addToast('entry', `MODE SWITCHED: ${String(mode).toUpperCase()}`);
+    setAlert('');
+  } else {
+    addToast('exit', `MODE SWITCH FAILED`);
+    setAlert(`Mode switch failed: ${(r && r.error) ? r.error : 'unknown error'}`);
   }
   refresh();
 }
@@ -512,6 +566,7 @@ def create_service():
     def state():
         p = bot.logs_dir / "latest_cycle.json"
         data = read_json(p, {"mode": cfg.mode, "trading_venue": cfg.trading_venue})
+        data["mode"] = bot.cfg.mode
         data["engine_running"] = engine_running["value"]
         data["kill_switch"] = bot.kill_switch
         return jsonify(data)
@@ -597,6 +652,19 @@ def create_service():
             bot.kill_switch = True
             close_all_positions("manual_emergency_close")
         return jsonify({"ok": True, "engine_running": False, "kill_switch": True})
+
+    @app.post("/api/control/mode")
+    def api_control_mode():
+        payload = request.get_json(silent=True) or {}
+        mode = str(payload.get("mode", "")).strip().lower()
+        if mode not in {"paper", "live"}:
+            return jsonify({"ok": False, "error": "mode must be paper or live"}), 400
+        with op_lock:
+            try:
+                bot.switch_mode(mode)
+            except Exception as e:
+                return jsonify({"ok": False, "error": str(e)}), 400
+            return jsonify({"ok": True, "mode": bot.cfg.mode})
 
     return app
 

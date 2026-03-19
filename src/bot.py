@@ -1123,15 +1123,33 @@ class BotApp:
         else:
             self.market_data = BinanceMarketDataAdapter()
 
+        self.executor = self._build_executor()
+
+    def _build_executor(self) -> ExecutionAdapter:
+        cfg = self.cfg
         if cfg.mode == "live":
             if cfg.trading_venue == "solana_jupiter":
-                self.executor = SolanaJupiterLiveExecutionAdapter(cfg, self.symbol_to_mint)
-            elif cfg.trading_venue == "drift_gateway":
-                self.executor = DriftGatewayExecutionAdapter(cfg)
-            else:
-                self.executor = BinanceLiveExecutionAdapter(cfg)
-        else:
-            self.executor = PaperExecutionAdapter(cfg)
+                return SolanaJupiterLiveExecutionAdapter(cfg, self.symbol_to_mint)
+            if cfg.trading_venue == "drift_gateway":
+                return DriftGatewayExecutionAdapter(cfg)
+            return BinanceLiveExecutionAdapter(cfg)
+        return PaperExecutionAdapter(cfg)
+
+    def switch_mode(self, mode: str):
+        mode = (mode or "").strip().lower()
+        if mode not in {"paper", "live"}:
+            raise ValueError("mode must be paper or live")
+        if mode == self.cfg.mode:
+            return
+        old = self.cfg.mode
+        self.cfg.mode = mode
+        try:
+            self.executor = self._build_executor()
+        except Exception:
+            self.cfg.mode = old
+            self.executor = self._build_executor()
+            raise
+        self.log(f"mode switched: {old} -> {mode}")
 
     def refresh_symbol_map_from_signals(self):
         if self.cfg.trading_venue not in {"solana_jupiter", "drift_gateway"}:
