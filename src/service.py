@@ -62,6 +62,37 @@ HTML = """
     .pill { border:1px solid var(--line); background:#081120; border-radius:10px; padding:8px 10px; min-width: 140px; }
     .pill .k { color: var(--muted); font-size:11px; }
     .pill .v { color: var(--cyan); font-size:15px; margin-top:2px; }
+    .hero {
+      border:1px solid #214068;
+      background: linear-gradient(120deg, #0b1a2f, #0a1323);
+      border-radius:12px;
+      padding:14px;
+      margin-bottom:10px;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+    }
+    .hero .label { color: var(--muted); font-size:12px; }
+    .hero .val { color: #b7f5ff; font-size:34px; font-weight:700; letter-spacing:.5px; }
+    .hero .sub { color: var(--muted); font-size:12px; margin-top:4px; }
+    .hero .mode {
+      border:1px solid #325277;
+      border-radius:10px;
+      padding:8px 10px;
+      font-size:12px;
+      color:#d7eeff;
+      background:#0a1628;
+    }
+    .alert {
+      border:1px solid #6b2a3d;
+      background:#1c0d14;
+      color:#ffb7c6;
+      border-radius:10px;
+      padding:8px 10px;
+      margin-bottom:10px;
+      display:none;
+    }
 
     .layout { display:grid; grid-template-columns: 1.25fr .75fr; gap:10px; }
     .card { border:1px solid var(--line); border-radius:12px; background: linear-gradient(180deg, #0d1422, #0b111d); padding:10px; }
@@ -105,6 +136,7 @@ HTML = """
 <body>
   <div class=\"floaters\" id=\"floaters\"></div>
   <div class=\"wrap\">
+    <div id=\"alert\" class=\"alert\"></div>
     <div class=\"head\">
       <div class=\"title\">AIG // LIVE TRADER DASHBOARD</div>
       <div class=\"head-right\">
@@ -113,6 +145,15 @@ HTML = """
         <button class=\"ctrl-btn emergency\" onclick=\"control('emergency-close')\">EMERGENCY CLOSE</button>
         <div id=\"stamp\" class=\"badge\">loading...</div>
       </div>
+    </div>
+
+    <div class=\"hero\">
+      <div>
+        <div class=\"label\">TOTAL BALANCE</div>
+        <div id=\"heroBalance\" class=\"val\">$0.00</div>
+        <div id=\"heroSub\" class=\"sub\">budget $0.00 | pnl $0.00</div>
+      </div>
+      <div id=\"heroMode\" class=\"mode\">MODE: -</div>
     </div>
 
     <div class=\"kpi\" id=\"kpi\"></div>
@@ -158,6 +199,7 @@ const seen = new Set();
 let history = [];
 let latest = {};
 const flow = { particles: [] };
+let staleCount = 0;
 
 function fmt(n, d=4){ return (typeof n === 'number') ? n.toLocaleString(undefined,{maximumFractionDigits:d}) : '-'; }
 function clsScore(x){ return (x||0) >= 0 ? 'g' : 'r'; }
@@ -171,6 +213,13 @@ function addToast(kind, msg){
   setTimeout(()=>d.remove(), 6500);
 }
 
+function setAlert(msg){
+  const el = document.getElementById('alert');
+  if(!msg){ el.style.display = 'none'; el.textContent = ''; return; }
+  el.style.display = 'block';
+  el.textContent = msg;
+}
+
 function renderKPIs(s){
   const kpi = document.getElementById('kpi');
   const wr = ((s.win_rate||0)*100).toFixed(1) + '%';
@@ -178,6 +227,10 @@ function renderKPIs(s){
   const exec = (s.mode || 'paper').toUpperCase();
   const totalPnl = s.total_pnl ?? ((s.realized_pnl||0) + (s.unrealized_pnl||0));
   const roi = ((s.roi_pct||0)*100).toFixed(2) + '%';
+  const eq = Number(s.equity||0);
+  document.getElementById('heroBalance').textContent = `$${fmt(eq,2)}`;
+  document.getElementById('heroSub').textContent = `budget $${fmt(s.budget_usd ?? s.starting_cash,2)} | total pnl ${(totalPnl>=0?'+':'')}$${fmt(totalPnl,2)} | roi ${roi}`;
+  document.getElementById('heroMode').textContent = `MODE: ${(s.mode||'paper').toUpperCase()} | ${(s.trading_venue||'-')}`;
   kpi.innerHTML = `
     <div class='pill'><div class='k'>STARTING BUDGET</div><div class='v'>$${fmt(s.starting_cash ?? s.budget_usd,2)}</div></div>
     <div class='pill'><div class='k'>EQUITY</div><div class='v'>$${fmt(s.equity,2)}</div></div>
@@ -335,10 +388,22 @@ function initFlow(){
 }
 
 async function refresh(){
-  const s = await fetch('/api/state').then(r=>r.json());
-  const ev = await fetch('/api/events?limit=60').then(r=>r.json());
-  const hs = await fetch('/api/history?limit=220').then(r=>r.json());
-  const ob = await fetch('/api/orderbook').then(r=>r.json()).catch(()=>({}));
+  let s, ev, hs, ob;
+  try {
+    const rs = await Promise.all([
+      fetch('/api/state').then(r=>r.json()),
+      fetch('/api/events?limit=60').then(r=>r.json()),
+      fetch('/api/history?limit=220').then(r=>r.json()),
+      fetch('/api/orderbook').then(r=>r.json()).catch(()=>({})),
+    ]);
+    s = rs[0]; ev = rs[1]; hs = rs[2]; ob = rs[3];
+    staleCount = 0;
+    setAlert('');
+  } catch (e){
+    staleCount += 1;
+    setAlert(`Data feed error (${staleCount}) - retrying...`);
+    return;
+  }
   latest = s; history = hs;
   document.getElementById('stamp').textContent = `tick ${s.tick ?? '-'} | ${s.mode ?? '-'} | ${s.trading_venue ?? '-'} | ${(s.engine_running ? 'RUNNING' : 'PAUSED')} | budget $${fmt(s.budget_usd ?? s.starting_cash ?? 0,2)} | entry $${fmt(s.fixed_trade_usd ?? 0,2)} | llm-exit ${s.llm_exit_control ? 'on' : 'off'}`;
   renderKPIs(s);
@@ -350,11 +415,13 @@ async function refresh(){
 }
 
 async function control(action){
-  const r = await fetch(`/api/control/${action}`, {method: 'POST'}).then(x=>x.json()).catch(()=>({ok:false}));
+  const r = await fetch(`/api/control/${action}`, {method: 'POST'}).then(x=>x.json()).catch(()=>({ok:false,error:'request_failed'}));
   if(r && r.ok){
     addToast('entry', `CONTROL: ${action.toUpperCase()} OK`);
+    setAlert('');
   } else {
     addToast('exit', `CONTROL FAIL: ${action.toUpperCase()}`);
+    setAlert(`Control action failed: ${action}`);
   }
   refresh();
 }
