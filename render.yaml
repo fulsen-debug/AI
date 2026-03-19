@@ -1,0 +1,46 @@
+services:
+  - type: worker
+    name: ai-trader-os
+    env: python
+    plan: starter
+    rootDir: .
+    buildCommand: pip install -r requirements.txt
+    startCommand: ./scripts/start_worker.sh
+    autoDeploy: true
+    envVars:
+      - key: BOT_MODE
+        value: paper
+      - key: BUDGET_USD
+        value: "50"
+      - key: SCAN_INTERVAL
+        value: "20"
+      - key: RISK_PER_TRADE
+        value: "0.15"
+      - key: MAX_POSITIONS
+        value: "4"
+      - key: STOP_LOSS_PCT
+        value: "0.025"
+      - key: TAKE_PROFIT_PCT
+        value: "0.045"
+      - key: MAX_POSITION_AGE_MINUTES
+        value: "240"
+      - key: MAX_DAILY_DRAWDOWN_PCT
+        value: "0.08"
+      - key: COOLDOWN_MINUTES
+        value: "20"
+      - key: BUY_THRESHOLD
+        value: "0.008"
+      - key: SELL_THRESHOLD
+        value: "-0.006"
+      - key: QUOTE_ASSET
+        value: USDT
+      - key: TOP_N_MARKETS
+        value: "25"
+      - key: CANDIDATES_PER_CYCLE
+        value: "6"
+      - key: MIN_QUOTE_VOLUME_USD
+        value: "5000000"
+      - key: PAPER_FEE_BPS
+        value: "10"
+      - key: PAPER_SLIPPAGE_BPS
+        value: "5"
