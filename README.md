@@ -96,3 +96,14 @@ LOCAL_BRAIN_MODEL=qwen2.5:7b-instruct
 ```
 
 Works with Ollama (`/api/chat`) or OpenAI-compatible local endpoints (`/v1/chat/completions`).
+
+
+## Web dashboard start
+
+For Render Web Service, use:
+
+```
+./scripts/start_web.sh
+```
+
+This runs the trading loop and serves dashboard at `/`.

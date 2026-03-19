@@ -5,7 +5,7 @@ services:
     plan: starter
     rootDir: .
     buildCommand: pip install -r requirements.txt
-    startCommand: ./scripts/start_worker.sh
+    startCommand: ./scripts/start_web.sh
     autoDeploy: true
     envVars:
       - key: BOT_MODE
