@@ -5,6 +5,7 @@ import time
 from collections import deque
 from pathlib import Path
 
+import requests
 from flask import Flask, jsonify, render_template_string
 
 from bot import BotApp, load_config
@@ -186,7 +187,28 @@ function renderPositions(s){
   document.getElementById('positions').innerHTML = rows || '<tr><td colspan="5">-</td></tr>';
 }
 
-function synthOrderBook(s){
+function levelPrice(v){
+  const n = Number(v || 0);
+  if(!Number.isFinite(n)) return 0;
+  if(n > 1000000) return n / 1000000; // Drift L2 often uses 1e6 precision
+  return n;
+}
+function levelSize(v){
+  const n = Number(v || 0);
+  if(!Number.isFinite(n)) return 0;
+  if(n > 10000000000) return n / 1000000000;
+  if(n > 1000000) return n / 1000000;
+  return n;
+}
+function renderOrderBook(ob, s){
+  if(ob && Array.isArray(ob.asks) && Array.isArray(ob.bids) && ob.asks.length && ob.bids.length){
+    const asks = ob.asks.slice(0,10).map(x => ({px: levelPrice(x.price), sz: levelSize(x.size)}));
+    const bids = ob.bids.slice(0,10).map(x => ({px: levelPrice(x.price), sz: levelSize(x.size)}));
+    document.getElementById('asks').innerHTML = asks.map(x=>`<div class='row ask'><span>${fmt(x.px,4)}</span><span>${fmt(x.sz,3)}</span></div>`).join('');
+    document.getElementById('bids').innerHTML = bids.map(x=>`<div class='row bid'><span>${fmt(x.px,4)}</span><span>${fmt(x.sz,3)}</span></div>`).join('');
+    return;
+  }
+  // fallback if API unavailable
   const sig = (s.top_signals||[])[0];
   if(!sig){ document.getElementById('asks').innerHTML=''; document.getElementById('bids').innerHTML=''; return; }
   const p = sig.price || 0;
@@ -287,12 +309,13 @@ async function refresh(){
   const s = await fetch('/api/state').then(r=>r.json());
   const ev = await fetch('/api/events?limit=60').then(r=>r.json());
   const hs = await fetch('/api/history?limit=220').then(r=>r.json());
+  const ob = await fetch('/api/orderbook').then(r=>r.json()).catch(()=>({}));
   latest = s; history = hs;
   document.getElementById('stamp').textContent = `tick ${s.tick ?? '-'} | ${s.mode ?? '-'} | ${s.trading_venue ?? '-'}`;
   renderKPIs(s);
   renderSignals(s);
   renderPositions(s);
-  synthOrderBook(s);
+  renderOrderBook(ob, s);
   renderFeed(ev);
   drawCurve();
 }
@@ -375,8 +398,54 @@ def create_service():
         limit = int(os.getenv("HISTORY_LIMIT", "220"))
         return jsonify(list(history)[-limit:])
 
+    @app.get("/api/orderbook")
+    def api_orderbook():
+        market = os.getenv("DRIFT_MARKET_NAME", "SOL-PERP")
+        depth = int(os.getenv("DRIFT_ORDERBOOK_DEPTH", "10"))
+        base = os.getenv("DRIFT_DLOB_URL", "https://dlob.drift.trade").rstrip("/")
+        url = f"{base}/l2"
+        params = {
+            "marketName": market,
+            "depth": depth,
+            "includeVamm": "true",
+            "includeIndicative": "true",
+        }
+        timeout_sec = float(os.getenv("DRIFT_ORDERBOOK_TIMEOUT_SEC", "3.0"))
+        try:
+            resp = requests.get(url, params=params, timeout=timeout_sec)
+            resp.raise_for_status()
+            payload = resp.json()
+            asks = payload.get("asks") or []
+            bids = payload.get("bids") or []
+            if not isinstance(asks, list) or not isinstance(bids, list):
+                raise ValueError("invalid L2 response structure")
+            return jsonify(
+                {
+                    "source": "drift_dlob",
+                    "market": market,
+                    "asks": asks,
+                    "bids": bids,
+                    "ts": int(time.time()),
+                }
+            )
+        except Exception as e:
+            return jsonify(
+                {
+                    "source": "fallback",
+                    "market": market,
+                    "asks": [],
+                    "bids": [],
+                    "error": str(e),
+                    "ts": int(time.time()),
+                }
+            )
+
     @app.get("/healthz")
     def healthz():
+        return jsonify({"ok": True})
+
+    @app.get("/api/health")
+    def api_health():
         return jsonify({"ok": True})
 
     return app

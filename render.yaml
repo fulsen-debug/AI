@@ -1,11 +1,12 @@
 services:
-  - type: worker
+  - type: web
     name: ai-trader-os
     env: python
     plan: starter
     rootDir: .
     buildCommand: pip install -r requirements.txt
     startCommand: ./scripts/start_web.sh
+    healthCheckPath: /healthz
     autoDeploy: true
     envVars:
       - key: BOT_MODE
