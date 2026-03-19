@@ -77,6 +77,7 @@ class Config:
     budget_usd: float = 50.0
     scan_interval: int = 20
     risk_per_trade: float = 0.15
+    fixed_trade_usd: float = 5.0
     max_positions: int = 4
     buy_threshold: float = 0.008
     sell_threshold: float = -0.006
@@ -123,6 +124,7 @@ class Config:
     local_brain_url: str = "http://127.0.0.1:11434"
     local_brain_model: str = "qwen2.5:7b-instruct"
     local_brain_api_key: str = ""
+    llm_exit_control: bool = True
 
 
 class Strategy:
@@ -368,7 +370,8 @@ class AgentBrain:
         prompt = (
             "Return JSON object with key 'decisions' containing array of per-symbol actions. "
             "Actions allowed: LONG, SHORT, EXIT_LONG, EXIT_SHORT, HOLD. "
-            "Include size_fraction between 0 and 0.25. Keep risk conservative.\n"
+            "Include size_fraction between 0 and 0.25. Keep risk conservative. "
+            "When in position, decide exits explicitly (use EXIT_LONG / EXIT_SHORT) for TP/SL logic.\n"
             f"{json.dumps(snapshot)}"
         )
 
@@ -1150,6 +1153,11 @@ class BotApp:
     def scan_markets(self) -> List[MarketSignal]:
         return self.market_data.scan_markets(self.cfg)
 
+    def compute_entry_usd(self, size_fraction: float) -> float:
+        if self.cfg.fixed_trade_usd > 0:
+            return min(self.cfg.fixed_trade_usd, max(0.0, self.portfolio.cash))
+        return self.portfolio.cash * (size_fraction or self.cfg.risk_per_trade)
+
     def apply_risk_controls(self, prices: Dict[str, float]):
         now = time.time()
         for symbol, pos in list(self.portfolio.positions.items()):
@@ -1161,18 +1169,21 @@ class BotApp:
                 move = -move
             age_mins = (now - pos.opened_at) / 60
 
-            if move <= -self.cfg.stop_loss_pct:
-                if pos.side == "SHORT":
-                    self.execute_close_short(symbol, pos.qty, mark, "stop_loss")
-                else:
-                    self.execute_exit(symbol, pos.qty, mark, "stop_loss")
-                continue
-            if move >= self.cfg.take_profit_pct:
-                if pos.side == "SHORT":
-                    self.execute_close_short(symbol, pos.qty, mark, "take_profit")
-                else:
-                    self.execute_exit(symbol, pos.qty, mark, "take_profit")
-                continue
+            # Optional LLM-managed exits: keep hard rails (kill-switch, max age), but let
+            # the brain choose TP/SL timing via EXIT_LONG / EXIT_SHORT decisions.
+            if not (self.cfg.brain_enabled and self.cfg.llm_exit_control):
+                if move <= -self.cfg.stop_loss_pct:
+                    if pos.side == "SHORT":
+                        self.execute_close_short(symbol, pos.qty, mark, "stop_loss")
+                    else:
+                        self.execute_exit(symbol, pos.qty, mark, "stop_loss")
+                    continue
+                if move >= self.cfg.take_profit_pct:
+                    if pos.side == "SHORT":
+                        self.execute_close_short(symbol, pos.qty, mark, "take_profit")
+                    else:
+                        self.execute_exit(symbol, pos.qty, mark, "take_profit")
+                    continue
             if age_mins >= self.cfg.max_position_age_minutes:
                 if pos.side == "SHORT":
                     self.execute_close_short(symbol, pos.qty, mark, "max_age")
@@ -1245,6 +1256,8 @@ class BotApp:
             "tick": self.tick,
             "mode": self.cfg.mode,
             "trading_venue": self.cfg.trading_venue,
+            "fixed_trade_usd": self.cfg.fixed_trade_usd,
+            "llm_exit_control": self.cfg.llm_exit_control,
             "kill_switch": self.kill_switch,
             "starting_cash": self.portfolio.starting_cash,
             "budget_usd": self.cfg.budget_usd,
@@ -1344,7 +1357,7 @@ class BotApp:
                     if self.portfolio.in_cooldown(symbol):
                         self.log(f"hold {symbol}: in cooldown")
                         continue
-                    usd_size = self.portfolio.cash * (size_fraction or self.cfg.risk_per_trade)
+                    usd_size = self.compute_entry_usd(size_fraction)
                     self.execute_entry(symbol, usd_size, signal.price, reason)
                 elif action == "SHORT":
                     if len(self.portfolio.positions) >= self.cfg.max_positions and not pos:
@@ -1362,7 +1375,7 @@ class BotApp:
                     if self.portfolio.in_cooldown(symbol):
                         self.log(f"hold {symbol}: in cooldown")
                         continue
-                    usd_size = self.portfolio.cash * (size_fraction or self.cfg.risk_per_trade)
+                    usd_size = self.compute_entry_usd(size_fraction)
                     self.execute_open_short(symbol, usd_size, signal.price, reason)
                 elif action == "EXIT_LONG":
                     if pos and pos.side == "LONG":
@@ -1541,6 +1554,7 @@ def load_config() -> Config:
         budget_usd=parse_float("BUDGET_USD", 50.0),
         scan_interval=parse_int("SCAN_INTERVAL", 20),
         risk_per_trade=parse_float("RISK_PER_TRADE", 0.15),
+        fixed_trade_usd=parse_float("FIXED_TRADE_USD", 5.0),
         max_positions=parse_int("MAX_POSITIONS", 4),
         buy_threshold=parse_float("BUY_THRESHOLD", 0.008),
         sell_threshold=parse_float("SELL_THRESHOLD", -0.006),
@@ -1585,6 +1599,7 @@ def load_config() -> Config:
         local_brain_url=os.getenv("LOCAL_BRAIN_URL", "http://127.0.0.1:11434"),
         local_brain_model=os.getenv("LOCAL_BRAIN_MODEL", "qwen2.5:7b-instruct"),
         local_brain_api_key=os.getenv("LOCAL_BRAIN_API_KEY", ""),
+        llm_exit_control=parse_bool("LLM_EXIT_CONTROL", True),
     )
 
 

@@ -320,7 +320,7 @@ async function refresh(){
   const hs = await fetch('/api/history?limit=220').then(r=>r.json());
   const ob = await fetch('/api/orderbook').then(r=>r.json()).catch(()=>({}));
   latest = s; history = hs;
-  document.getElementById('stamp').textContent = `tick ${s.tick ?? '-'} | ${s.mode ?? '-'} | ${s.trading_venue ?? '-'} | budget $${fmt(s.budget_usd ?? s.starting_cash ?? 0,2)}`;
+  document.getElementById('stamp').textContent = `tick ${s.tick ?? '-'} | ${s.mode ?? '-'} | ${s.trading_venue ?? '-'} | budget $${fmt(s.budget_usd ?? s.starting_cash ?? 0,2)} | entry $${fmt(s.fixed_trade_usd ?? 0,2)} | llm-exit ${s.llm_exit_control ? 'on' : 'off'}`;
   renderKPIs(s);
   renderSignals(s);
   renderPositions(s);
