@@ -2,6 +2,7 @@ import json
 import os
 import threading
 import time
+from collections import deque
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template_string
@@ -18,125 +19,287 @@ HTML = """
   <title>AIG Live Dashboard</title>
   <style>
     :root {
-      --bg: #070b12;
-      --card: #0f1724;
-      --line: #1f2c43;
-      --green: #3cf0a8;
-      --red: #ff5f7a;
-      --cyan: #57d8ff;
-      --text: #d8e6ff;
-      --muted: #89a0c6;
+      --bg: #060a11;
+      --card: #0d1422;
+      --line: #1a2a42;
+      --soft: #0a1220;
+      --text: #d9e8ff;
+      --muted: #86a3c8;
+      --cyan: #59d7ff;
+      --green: #3af0ad;
+      --red: #ff5e7a;
+      --amber: #ffbc54;
     }
-    body { margin:0; font-family: ui-monospace, Menlo, Consolas, monospace; background: radial-gradient(circle at 15% 20%, #0c1424 0%, var(--bg) 60%); color: var(--text); }
-    .wrap { max-width: 1200px; margin: 20px auto; padding: 0 14px; }
-    .head { display:flex; justify-content:space-between; align-items:center; margin-bottom: 10px; }
-    .title { font-size: 22px; color: var(--cyan); letter-spacing: .5px; }
-    .grid { display:grid; grid-template-columns: 1.3fr 1fr; gap: 12px; }
-    .card { background: linear-gradient(180deg, #0f1724, #0b1220); border:1px solid var(--line); border-radius:12px; padding:12px; box-shadow: 0 0 0 1px #0a1020 inset; }
-    .kpi { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
-    .pill { padding:8px 10px; border-radius:10px; border:1px solid var(--line); background:#0a1220; }
-    .pill b { color: var(--cyan); }
-    table { width:100%; border-collapse: collapse; font-size: 12px; }
-    th, td { border-bottom: 1px solid #162238; padding: 7px 6px; text-align:left; }
-    th { color: var(--muted); font-weight: 600; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--text);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background: radial-gradient(circle at 15% 12%, #11203a 0%, var(--bg) 55%);
+    }
+    .wrap { max-width: 1320px; margin: 14px auto; padding: 0 12px; }
+    .head { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+    .title { font-size: 24px; color: var(--cyan); letter-spacing: .8px; }
+    .badge { border:1px solid var(--line); background: var(--soft); border-radius:10px; padding:8px 10px; color: var(--muted); }
+
+    .kpi { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+    .pill { border:1px solid var(--line); background:#081120; border-radius:10px; padding:8px 10px; min-width: 140px; }
+    .pill .k { color: var(--muted); font-size:11px; }
+    .pill .v { color: var(--cyan); font-size:15px; margin-top:2px; }
+
+    .layout { display:grid; grid-template-columns: 1.15fr .85fr; gap:10px; }
+    .card { border:1px solid var(--line); border-radius:12px; background: linear-gradient(180deg, #0d1422, #0b111d); padding:10px; }
+    .card h3 { margin:2px 0 8px; color: var(--amber); font-size:14px; letter-spacing:.6px; }
+
+    .chart-wrap { position:relative; height:260px; border:1px solid #16243b; border-radius:10px; background:#050c18; overflow:hidden; }
+    canvas { display:block; width:100%; height:100%; }
+
+    .right-grid { display:grid; grid-template-rows: 1fr 1fr; gap:10px; }
+
+    table { width:100%; border-collapse:collapse; font-size:12px; }
+    th, td { padding:7px 6px; border-bottom:1px solid #17253a; text-align:left; }
+    th { color: var(--muted); font-weight:600; }
+
+    .depth { display:grid; grid-template-columns: 1fr 1fr; gap:8px; }
+    .book { border:1px solid #16243b; border-radius:10px; padding:6px; background:#08111d; }
+    .row { position:relative; display:flex; justify-content:space-between; font-size:12px; padding:4px 6px; margin:2px 0; overflow:hidden; }
+    .row span { position:relative; z-index:1; }
+    .row::before { content:''; position:absolute; inset:0; opacity:.28; }
+    .ask::before { background: linear-gradient(90deg, rgba(255,94,122,.65), transparent); }
+    .bid::before { background: linear-gradient(90deg, rgba(58,240,173,.65), transparent); }
+
+    .feed { height:220px; overflow:auto; border:1px solid #16243b; border-radius:10px; background:#07101b; padding:8px; font-size:12px; }
+
+    .floaters { position: fixed; top: 14px; right: 14px; z-index: 20; display:flex; flex-direction:column; gap:8px; }
+    .toast { min-width:260px; border-radius:10px; border:1px solid var(--line); background:#0c1728; padding:10px 12px; animation: pop .24s ease-out; }
+    .toast.entry { border-color:#175f49; box-shadow:0 0 0 1px #103b2e inset; }
+    .toast.exit { border-color:#6b2a3d; box-shadow:0 0 0 1px #3a1621 inset; }
+    @keyframes pop { from { opacity:0; transform:translateY(-6px);} to { opacity:1; transform:translateY(0);} }
+
     .g { color: var(--green); }
     .r { color: var(--red); }
-    .logs { height: 210px; overflow:auto; background:#080f1a; border:1px solid #162238; border-radius:10px; padding:8px; font-size:12px; }
-    .floaters { position: fixed; top: 14px; right: 14px; display: flex; flex-direction: column; gap:8px; z-index: 10; }
-    .toast { min-width: 260px; padding:10px 12px; border-radius: 10px; border:1px solid #1f2c43; background:#0e1828; animation: pop .25s ease-out; }
-    .toast.buy { border-color:#1e6d54; box-shadow:0 0 0 1px #123e31 inset; }
-    .toast.sell { border-color:#7a3145; box-shadow:0 0 0 1px #3d1a25 inset; }
-    @keyframes pop { from { transform: translateY(-6px); opacity:0; } to { transform: translateY(0); opacity:1; } }
-    @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+
+    @media (max-width: 960px) {
+      .layout { grid-template-columns: 1fr; }
+      .right-grid { grid-template-rows: auto auto; }
+    }
   </style>
 </head>
 <body>
   <div class=\"floaters\" id=\"floaters\"></div>
   <div class=\"wrap\">
     <div class=\"head\">
-      <div class=\"title\">AIG Live Dashboard</div>
-      <div id=\"stamp\" class=\"pill\">loading...</div>
+      <div class=\"title\">AIG // LIVE TRADER DASHBOARD</div>
+      <div id=\"stamp\" class=\"badge\">loading...</div>
     </div>
 
     <div class=\"kpi\" id=\"kpi\"></div>
 
-    <div class=\"grid\">
+    <div class=\"layout\">
       <div class=\"card\">
-        <h3>Signals</h3>
-        <table>
-          <thead><tr><th>Symbol</th><th>Price</th><th>Score</th><th>Conf</th><th>Vol</th></tr></thead>
-          <tbody id=\"signals\"></tbody>
-        </table>
+        <h3>SIGNAL FLOW ENGINE</h3>
+        <div class=\"chart-wrap\"><canvas id=\"flowCanvas\"></canvas></div>
+        <div style=\"margin-top:8px\">
+          <table>
+            <thead><tr><th>Symbol</th><th>Price</th><th>Score</th><th>Conf</th><th>Vol</th><th>Action Bias</th></tr></thead>
+            <tbody id=\"signals\"></tbody>
+          </table>
+        </div>
       </div>
-      <div class=\"card\">
-        <h3>Open Positions</h3>
-        <table>
-          <thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Entry</th><th>Mark</th></tr></thead>
-          <tbody id=\"positions\"></tbody>
-        </table>
-      </div>
-    </div>
 
-    <div class=\"card\" style=\"margin-top:12px\">
-      <h3>Execution Feed</h3>
-      <div class=\"logs\" id=\"logs\"></div>
+      <div class=\"right-grid\">
+        <div class=\"card\">
+          <h3>PNL CURVE</h3>
+          <div class=\"chart-wrap\" style=\"height:180px\"><canvas id=\"pnlCanvas\"></canvas></div>
+          <div style=\"margin-top:8px\">
+            <table>
+              <thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Entry</th><th>Mark</th></tr></thead>
+              <tbody id=\"positions\"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class=\"card\">
+          <h3>ORDER BOOK + EXECUTION FEED</h3>
+          <div class=\"depth\">
+            <div class=\"book\"><div style=\"color:var(--red);margin-bottom:4px\">ASKS</div><div id=\"asks\"></div></div>
+            <div class=\"book\"><div style=\"color:var(--green);margin-bottom:4px\">BIDS</div><div id=\"bids\"></div></div>
+          </div>
+          <div id=\"feed\" class=\"feed\" style=\"margin-top:8px\"></div>
+        </div>
+      </div>
     </div>
   </div>
 
 <script>
-let seen = new Set();
-function fmt(n){ return (typeof n === 'number') ? n.toLocaleString(undefined,{maximumFractionDigits:6}) : '-'; }
-function addToast(type, text){
+const seen = new Set();
+let history = [];
+let latest = {};
+const flow = { particles: [] };
+
+function fmt(n, d=4){ return (typeof n === 'number') ? n.toLocaleString(undefined,{maximumFractionDigits:d}) : '-'; }
+function clsScore(x){ return (x||0) >= 0 ? 'g' : 'r'; }
+
+function addToast(kind, msg){
   const box = document.getElementById('floaters');
   const d = document.createElement('div');
-  d.className = 'toast ' + (type || 'buy');
-  d.textContent = text;
+  d.className = 'toast ' + kind;
+  d.textContent = msg;
   box.prepend(d);
-  setTimeout(()=>d.remove(), 7000);
+  setTimeout(()=>d.remove(), 6500);
 }
-async function refresh(){
-  const s = await fetch('/api/state').then(r=>r.json());
-  const ev = await fetch('/api/events?limit=30').then(r=>r.json());
 
-  document.getElementById('stamp').textContent = `tick ${s.tick ?? '-'} | ${s.mode ?? '-'} | ${s.trading_venue ?? '-'}`;
-
+function renderKPIs(s){
   const kpi = document.getElementById('kpi');
+  const wr = ((s.win_rate||0)*100).toFixed(1) + '%';
+  const status = s.kill_switch ? 'HALTED' : 'ACTIVE';
   kpi.innerHTML = `
-    <div class=\"pill\"><b>Equity</b> $${fmt(s.equity)}</div>
-    <div class=\"pill\"><b>Cash</b> $${fmt(s.cash)}</div>
-    <div class=\"pill\"><b>Realized</b> $${fmt(s.realized_pnl)}</div>
-    <div class=\"pill\"><b>Fees</b> $${fmt(s.total_fees)}</div>
-    <div class=\"pill\"><b>Win Rate</b> ${((s.win_rate||0)*100).toFixed(1)}%</div>
-    <div class=\"pill\"><b>Status</b> ${s.kill_switch ? 'HALTED' : 'ACTIVE'}</div>
+    <div class='pill'><div class='k'>EQUITY</div><div class='v'>$${fmt(s.equity,2)}</div></div>
+    <div class='pill'><div class='k'>CASH</div><div class='v'>$${fmt(s.cash,2)}</div></div>
+    <div class='pill'><div class='k'>REALIZED</div><div class='v'>$${fmt(s.realized_pnl,2)}</div></div>
+    <div class='pill'><div class='k'>FEES</div><div class='v'>$${fmt(s.total_fees,2)}</div></div>
+    <div class='pill'><div class='k'>WIN RATE</div><div class='v'>${wr}</div></div>
+    <div class='pill'><div class='k'>STATUS</div><div class='v'>${status}</div></div>
   `;
+}
 
-  const sg = document.getElementById('signals');
-  sg.innerHTML = (s.top_signals || []).map(x => {
-    const cls = (x.score || 0) >= 0 ? 'g' : 'r';
-    return `<tr><td>${x.symbol}</td><td>${fmt(x.price)}</td><td class='${cls}'>${((x.score||0)*100).toFixed(2)}%</td><td>${fmt(x.confidence)}</td><td>${fmt(x.quote_volume)}</td></tr>`;
-  }).join('') || '<tr><td colspan=5>-</td></tr>';
+function renderSignals(s){
+  const rows = (s.top_signals||[]).map(x => {
+    const bias = x.score > 0.01 ? 'LONG' : x.score < -0.01 ? 'SHORT' : 'HOLD';
+    return `<tr>
+      <td>${x.symbol}</td>
+      <td>${fmt(x.price,6)}</td>
+      <td class='${clsScore(x.score)}'>${((x.score||0)*100).toFixed(2)}%</td>
+      <td>${fmt(x.confidence,2)}</td>
+      <td>${fmt(x.quote_volume,0)}</td>
+      <td>${bias}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('signals').innerHTML = rows || '<tr><td colspan="6">-</td></tr>';
+}
 
-  const ps = document.getElementById('positions');
-  ps.innerHTML = (s.open_positions || []).map(x => {
-    return `<tr><td>${x.symbol}</td><td>${x.side||'-'}</td><td>${fmt(x.qty)}</td><td>${fmt(x.entry_price)}</td><td>${fmt(x.mark_price)}</td></tr>`;
-  }).join('') || '<tr><td colspan=5>-</td></tr>';
+function renderPositions(s){
+  const rows = (s.open_positions||[]).map(x => `<tr>
+      <td>${x.symbol}</td><td>${x.side||'-'}</td><td>${fmt(x.qty,6)}</td>
+      <td>${fmt(x.entry_price,6)}</td><td>${fmt(x.mark_price,6)}</td>
+    </tr>`).join('');
+  document.getElementById('positions').innerHTML = rows || '<tr><td colspan="5">-</td></tr>';
+}
 
-  const logs = document.getElementById('logs');
-  logs.innerHTML = ev.map(x => `${x.ts || ''}  ${x.event || ''}  ${(x.payload && x.payload.symbol) || ''} ${(x.payload && x.payload.reason) || ''}`).join('<br/>');
-  logs.scrollTop = logs.scrollHeight;
+function synthOrderBook(s){
+  const sig = (s.top_signals||[])[0];
+  if(!sig){ document.getElementById('asks').innerHTML=''; document.getElementById('bids').innerHTML=''; return; }
+  const p = sig.price || 0;
+  const drift = (sig.score || 0) * 0.2;
+  const asks = []; const bids = [];
+  for(let i=1;i<=8;i++){
+    const spread = i * (0.0008 + Math.abs(drift)*0.0006) * p;
+    asks.push({px: p + spread, sz: Math.round((220000/(i+1)) + Math.random()*9000)});
+    bids.push({px: p - spread, sz: Math.round((220000/(i+1)) + Math.random()*9000)});
+  }
+  document.getElementById('asks').innerHTML = asks.map(x=>`<div class='row ask'><span>${fmt(x.px,4)}</span><span>${fmt(x.sz,0)}</span></div>`).join('');
+  document.getElementById('bids').innerHTML = bids.map(x=>`<div class='row bid'><span>${fmt(x.px,4)}</span><span>${fmt(x.sz,0)}</span></div>`).join('');
+}
 
-  ev.slice(-5).forEach(e => {
+function renderFeed(events){
+  const feed = document.getElementById('feed');
+  feed.innerHTML = events.map(e => `${e.ts||''}  ${e.event||''}  ${(e.payload&&e.payload.symbol)||''} ${(e.payload&&e.payload.reason)||''}`).join('<br/>');
+  feed.scrollTop = feed.scrollHeight;
+  events.slice(-6).forEach(e => {
     const id = `${e.ts}-${e.event}-${(e.payload&&e.payload.symbol)||''}`;
-    if (seen.has(id)) return;
+    if(seen.has(id)) return;
     seen.add(id);
-    if (e.event && (e.event.includes('entry') || e.event.includes('exit'))){
-      const t = `${e.event.toUpperCase()} ${(e.payload&&e.payload.symbol)||''} ${(e.payload&&e.payload.reason)||''}`;
-      const kind = e.event.includes('entry') ? 'buy' : 'sell';
-      addToast(kind, t);
+    if(e.event && (e.event.includes('entry') || e.event.includes('exit'))){
+      const kind = e.event.includes('entry') ? 'entry' : 'exit';
+      addToast(kind, `${e.event.toUpperCase()} ${(e.payload&&e.payload.symbol)||''} ${(e.payload&&e.payload.reason)||''}`);
     }
   });
 }
-setInterval(refresh, 2000); refresh();
+
+function drawCurve(){
+  const c = document.getElementById('pnlCanvas');
+  const ctx = c.getContext('2d');
+  const w = c.width = c.clientWidth; const h = c.height = c.clientHeight;
+  ctx.clearRect(0,0,w,h);
+  ctx.fillStyle = '#050c18'; ctx.fillRect(0,0,w,h);
+  if(history.length < 2) return;
+  const eq = history.map(x => x.equity || 0);
+  const min = Math.min(...eq), max = Math.max(...eq);
+  const span = Math.max(0.0001, max-min);
+
+  ctx.strokeStyle = '#1f2c43'; ctx.lineWidth = 1;
+  for(let i=1;i<4;i++){ const y = (h/4)*i; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); }
+
+  ctx.beginPath();
+  eq.forEach((v,i)=>{
+    const x = (i/(eq.length-1))*w;
+    const y = h - ((v-min)/span)*(h-10) - 5;
+    if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  });
+  const up = eq[eq.length-1] >= eq[0];
+  ctx.strokeStyle = up ? '#3af0ad' : '#ff5e7a';
+  ctx.lineWidth = 2.2;
+  ctx.stroke();
+}
+
+function initFlow(){
+  const c = document.getElementById('flowCanvas');
+  const ctx = c.getContext('2d');
+  function spawn(){
+    const score = ((latest.top_signals||[])[0]||{}).score || 0;
+    const conf = ((latest.top_signals||[])[0]||{}).confidence || 0.5;
+    const sign = score >= 0 ? 1 : -1;
+    const speed = 1.1 + Math.abs(score)*150 + conf*1.2;
+    flow.particles.push({x: 30, y: c.clientHeight/2 + (Math.random()-0.5)*20, vx: speed, vy: (Math.random()-0.5)*0.6 + sign*0.08, life: 1});
+    if(flow.particles.length > 220) flow.particles.shift();
+  }
+  function tick(){
+    const w = c.width = c.clientWidth; const h = c.height = c.clientHeight;
+    ctx.fillStyle = 'rgba(5,12,24,0.22)';
+    ctx.fillRect(0,0,w,h);
+
+    const score = ((latest.top_signals||[])[0]||{}).score || 0;
+    const good = score >= 0;
+    for(let i=0;i<3;i++) spawn();
+
+    flow.particles.forEach(p=>{
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vy += (Math.random()-0.5)*0.02;
+      p.life *= 0.995;
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(p.x - p.vx*2.6, p.y - p.vy*2.6);
+      ctx.strokeStyle = good ? `rgba(58,240,173,${p.life*0.7})` : `rgba(255,94,122,${p.life*0.7})`;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    });
+    flow.particles = flow.particles.filter(p => p.x < w+20 && p.y > -20 && p.y < h+20 && p.life > 0.07);
+
+    ctx.fillStyle = '#d0dbff';
+    ctx.beginPath(); ctx.arc(28, h/2, 7, 0, Math.PI*2); ctx.fill();
+    requestAnimationFrame(tick);
+  }
+  tick();
+}
+
+async function refresh(){
+  const s = await fetch('/api/state').then(r=>r.json());
+  const ev = await fetch('/api/events?limit=60').then(r=>r.json());
+  const hs = await fetch('/api/history?limit=220').then(r=>r.json());
+  latest = s; history = hs;
+  document.getElementById('stamp').textContent = `tick ${s.tick ?? '-'} | ${s.mode ?? '-'} | ${s.trading_venue ?? '-'}`;
+  renderKPIs(s);
+  renderSignals(s);
+  renderPositions(s);
+  synthOrderBook(s);
+  renderFeed(ev);
+  drawCurve();
+}
+
+initFlow();
+setInterval(refresh, 2000);
+refresh();
 </script>
 </body>
 </html>
@@ -152,7 +315,7 @@ def read_json(path: Path, default: dict):
         return default
 
 
-def read_events(path: Path, limit: int = 30):
+def read_events(path: Path, limit: int = 60):
     if not path.exists():
         return []
     rows = []
@@ -173,12 +336,16 @@ def create_service():
     cfg = load_config()
     bot = BotApp(cfg)
     app = Flask(__name__)
+    history = deque(maxlen=int(os.getenv("HISTORY_MAX", "500")))
 
     def runner():
         while True:
             start = time.time()
             try:
                 bot.step()
+                state = read_json(bot.logs_dir / "latest_cycle.json", {})
+                if state:
+                    history.append(state)
             except Exception as e:
                 bot.log(f"runtime error: {e}")
             elapsed = time.time() - start
@@ -200,8 +367,13 @@ def create_service():
     @app.get("/api/events")
     def events():
         p = bot.logs_dir / "events.jsonl"
-        limit = int(os.getenv("EVENTS_LIMIT", "30"))
+        limit = int(os.getenv("EVENTS_LIMIT", "60"))
         return jsonify(read_events(p, limit=limit))
+
+    @app.get("/api/history")
+    def api_history():
+        limit = int(os.getenv("HISTORY_LIMIT", "220"))
+        return jsonify(list(history)[-limit:])
 
     @app.get("/healthz")
     def healthz():
