@@ -226,7 +226,7 @@ const seen = new Set();
 let history = [];
 let latest = {};
 let liveBalance = {};
-const flow = { particles: [], tradeBursts: [] };
+const flow = { particles: [], tradeBursts: [], rings: [], t: 0 };
 let staleCount = 0;
 
 function fmt(n, d=4){ return (typeof n === 'number') ? n.toLocaleString(undefined,{maximumFractionDigits:d}) : '-'; }
@@ -425,11 +425,22 @@ function initFlow(){
     const score = ((latest.top_signals||[])[0]||{}).score || 0;
     const conf = ((latest.top_signals||[])[0]||{}).confidence || 0.5;
     const sign = score >= 0 ? 1 : -1;
-    const speed = 2.6 + Math.abs(score)*320 + conf*3.2;
-    flow.particles.push({x: 38, y: c.clientHeight/2 + (Math.random()-0.5)*36, vx: speed, vy: (Math.random()-0.5)*0.9 + sign*0.12, life: 1});
-    if(flow.particles.length > 460) flow.particles.shift();
+    const speed = 4.2 + Math.abs(score)*420 + conf*4.4;
+    const h = c.clientHeight || 500;
+    // Multi-nozzle emitter so the blast fills the full frame
+    const lane = (Math.random()-0.5) * (h * 0.32);
+    flow.particles.push({
+      x: 42 + Math.random()*8,
+      y: (h/2) + lane,
+      vx: speed,
+      vy: (Math.random()-0.5) * 2.8 + sign*0.16,
+      life: 1,
+      w: 0.8 + Math.random()*1.6
+    });
+    if(flow.particles.length > 1800) flow.particles.shift();
   }
   function tick(){
+    flow.t += 1;
     const w = c.width = c.clientWidth; const h = c.height = c.clientHeight;
     ctx.fillStyle = 'rgba(255,250,240,0.20)';
     ctx.fillRect(0,0,w,h);
@@ -472,21 +483,36 @@ function initFlow(){
 
     const score = ((latest.top_signals||[])[0]||{}).score || 0;
     const good = score >= 0;
-    for(let i=0;i<8;i++) spawn();
+    for(let i=0;i<28;i++) spawn();
+    if(flow.t % 9 === 0){
+      flow.rings.push({x: 44, y: h/2, r: 8, vr: 10 + Math.abs(score)*2400, life: 1});
+    }
 
     flow.particles.forEach(p=>{
       p.x += p.vx;
       p.y += p.vy;
-      p.vy += (Math.random()-0.5)*0.03;
-      p.life *= 0.998;
+      p.vy += (Math.random()-0.5)*0.05;
+      p.life *= 0.996;
       ctx.beginPath();
       ctx.moveTo(p.x, p.y);
-      ctx.lineTo(p.x - p.vx*3.4, p.y - p.vy*3.4);
+      ctx.lineTo(p.x - p.vx*4.8, p.y - p.vy*4.8);
       ctx.strokeStyle = good ? `rgba(47,158,98,${p.life*0.72})` : `rgba(194,79,79,${p.life*0.72})`;
-      ctx.lineWidth = 1;
+      ctx.lineWidth = p.w;
       ctx.stroke();
     });
-    flow.particles = flow.particles.filter(p => p.x < w+30 && p.y > -30 && p.y < h+30 && p.life > 0.04);
+    flow.particles = flow.particles.filter(p => p.x < w+80 && p.y > -80 && p.y < h+80 && p.life > 0.03);
+
+    // Shockwave rings from emitter
+    flow.rings.forEach(r=>{
+      r.r += r.vr * 0.016;
+      r.life *= 0.973;
+      ctx.beginPath();
+      ctx.arc(r.x, r.y, r.r, 0, Math.PI*2);
+      ctx.strokeStyle = good ? `rgba(47,158,98,${r.life*0.45})` : `rgba(194,79,79,${r.life*0.45})`;
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+    });
+    flow.rings = flow.rings.filter(r => r.life > 0.06 && r.r < w*1.3);
 
     // Trade bursts: explicit BUY/SELL floaters when real fills happen.
     flow.tradeBursts.forEach(t=>{
@@ -510,13 +536,13 @@ function initFlow(){
     // Directional beam toward orderbook side
     const beamX0 = 90;
     const beamY0 = h/2;
-    const beamX1 = w*0.985;
-    const beamSpread = 130 + Math.min(240, Math.abs(score)*1700);
+    const beamX1 = w*0.995;
+    const beamSpread = Math.max(h*0.62, 170 + Math.min(340, Math.abs(score)*2400));
     ctx.strokeStyle = good ? 'rgba(47,158,98,0.08)' : 'rgba(194,79,79,0.08)';
-    for(let k=0;k<16;k++){
+    for(let k=0;k<44;k++){
       ctx.beginPath();
       ctx.moveTo(beamX0, beamY0);
-      const yy = beamY0 + (k/15 - 0.5)*beamSpread;
+      const yy = beamY0 + (k/43 - 0.5)*beamSpread;
       ctx.lineTo(beamX1, yy);
       ctx.stroke();
     }
@@ -875,7 +901,18 @@ def create_service():
                 bot.switch_mode(mode)
             except Exception as e:
                 return jsonify({"ok": False, "error": str(e)}), 400
-            return jsonify({"ok": True, "mode": bot.cfg.mode})
+            # UX safety: switching to paper should immediately unhalt and resume tests.
+            if mode == "paper":
+                bot.kill_switch = False
+                engine_running["value"] = True
+            return jsonify(
+                {
+                    "ok": True,
+                    "mode": bot.cfg.mode,
+                    "engine_running": engine_running["value"],
+                    "kill_switch": bot.kill_switch,
+                }
+            )
 
     return app
 
