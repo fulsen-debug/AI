@@ -444,6 +444,16 @@ class PortfolioEngine:
                 mark += pos.margin_usd + ((pos.entry_price - px) * pos.qty)
         return self.cash + mark
 
+    def unrealized_pnl(self, prices: Dict[str, float]) -> float:
+        total = 0.0
+        for pos in self.positions.values():
+            px = prices.get(pos.symbol, pos.entry_price)
+            move = (px - pos.entry_price) * pos.qty
+            if pos.side == "SHORT":
+                move = -move
+            total += move
+        return total
+
     def update_peak(self, equity: float):
         if equity > self.peak_equity:
             self.peak_equity = equity
@@ -1225,21 +1235,32 @@ class BotApp:
 
     def write_cycle_report(self, prices: Dict[str, float]):
         equity = self.portfolio.equity(prices)
+        unrealized = self.portfolio.unrealized_pnl(prices)
+        total_pnl = self.portfolio.realized_pnl + unrealized
         win_rate = (self.portfolio.wins / self.portfolio.closed_trades) if self.portfolio.closed_trades else 0.0
+        roi_pct = ((equity - self.portfolio.starting_cash) / self.portfolio.starting_cash) if self.portfolio.starting_cash else 0.0
         report = {
             "ts": datetime.now(timezone.utc).isoformat(),
             "tick": self.tick,
             "mode": self.cfg.mode,
             "trading_venue": self.cfg.trading_venue,
             "kill_switch": self.kill_switch,
+            "starting_cash": self.portfolio.starting_cash,
+            "budget_usd": self.cfg.budget_usd,
             "equity": equity,
             "cash": self.portfolio.cash,
             "realized_pnl": self.portfolio.realized_pnl,
+            "unrealized_pnl": unrealized,
+            "total_pnl": total_pnl,
+            "roi_pct": roi_pct,
             "total_fees": self.portfolio.total_fees,
             "closed_trades": self.portfolio.closed_trades,
             "wins": self.portfolio.wins,
             "losses": self.portfolio.losses,
             "win_rate": win_rate,
+            "position_count": len(self.portfolio.positions),
+            "execution_mode": "live" if self.cfg.mode == "live" else "paper",
+            "pnl_formula": "total_pnl = realized_pnl + unrealized_pnl; equity = cash + marked_positions",
             "open_positions": [
                 {
                     "symbol": p.symbol,
@@ -1249,6 +1270,18 @@ class BotApp:
                     "entry_fee_usd": p.entry_fee_usd,
                     "margin_usd": p.margin_usd,
                     "mark_price": prices.get(p.symbol, p.entry_price),
+                    "unrealized_pnl": (
+                        ((prices.get(p.symbol, p.entry_price) - p.entry_price) * p.qty)
+                        if p.side == "LONG"
+                        else ((p.entry_price - prices.get(p.symbol, p.entry_price)) * p.qty)
+                    ),
+                    "unrealized_pnl_pct": (
+                        (
+                            (((prices.get(p.symbol, p.entry_price) - p.entry_price) / p.entry_price) if p.entry_price else 0.0)
+                            if p.side == "LONG"
+                            else (((p.entry_price - prices.get(p.symbol, p.entry_price)) / p.entry_price) if p.entry_price else 0.0)
+                        )
+                    ),
                 }
                 for p in self.portfolio.positions.values()
             ],

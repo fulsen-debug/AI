@@ -115,7 +115,7 @@ HTML = """
           <div class=\"chart-wrap\" style=\"height:220px\"><canvas id=\"pnlCanvas\"></canvas></div>
           <div style=\"margin-top:8px\">
             <table>
-              <thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Entry</th><th>Mark</th></tr></thead>
+              <thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Entry</th><th>Mark</th><th>U-PnL</th></tr></thead>
               <tbody id=\"positions\"></tbody>
             </table>
           </div>
@@ -156,10 +156,16 @@ function renderKPIs(s){
   const wr = ((s.win_rate||0)*100).toFixed(1) + '%';
   const status = s.kill_switch ? 'HALTED' : 'ACTIVE';
   const exec = (s.mode || 'paper').toUpperCase();
+  const totalPnl = s.total_pnl ?? ((s.realized_pnl||0) + (s.unrealized_pnl||0));
+  const roi = ((s.roi_pct||0)*100).toFixed(2) + '%';
   kpi.innerHTML = `
+    <div class='pill'><div class='k'>STARTING BUDGET</div><div class='v'>$${fmt(s.starting_cash ?? s.budget_usd,2)}</div></div>
     <div class='pill'><div class='k'>EQUITY</div><div class='v'>$${fmt(s.equity,2)}</div></div>
     <div class='pill'><div class='k'>CASH</div><div class='v'>$${fmt(s.cash,2)}</div></div>
-    <div class='pill'><div class='k'>REALIZED</div><div class='v'>$${fmt(s.realized_pnl,2)}</div></div>
+    <div class='pill'><div class='k'>REALIZED PNL</div><div class='v'>$${fmt(s.realized_pnl,2)}</div></div>
+    <div class='pill'><div class='k'>UNREALIZED PNL</div><div class='v'>$${fmt(s.unrealized_pnl,2)}</div></div>
+    <div class='pill'><div class='k'>TOTAL PNL</div><div class='v'>${totalPnl>=0?'+':''}$${fmt(totalPnl,2)}</div></div>
+    <div class='pill'><div class='k'>ROI</div><div class='v'>${roi}</div></div>
     <div class='pill'><div class='k'>FEES</div><div class='v'>$${fmt(s.total_fees,2)}</div></div>
     <div class='pill'><div class='k'>WIN RATE</div><div class='v'>${wr}</div></div>
     <div class='pill'><div class='k'>EXECUTION</div><div class='v'>${exec}</div></div>
@@ -185,9 +191,9 @@ function renderSignals(s){
 function renderPositions(s){
   const rows = (s.open_positions||[]).map(x => `<tr>
       <td>${x.symbol}</td><td>${x.side||'-'}</td><td>${fmt(x.qty,6)}</td>
-      <td>${fmt(x.entry_price,6)}</td><td>${fmt(x.mark_price,6)}</td>
+      <td>${fmt(x.entry_price,6)}</td><td>${fmt(x.mark_price,6)}</td><td class='${(x.unrealized_pnl||0)>=0?"g":"r"}'>${fmt(x.unrealized_pnl,4)}</td>
     </tr>`).join('');
-  document.getElementById('positions').innerHTML = rows || '<tr><td colspan="5">-</td></tr>';
+  document.getElementById('positions').innerHTML = rows || '<tr><td colspan="6">-</td></tr>';
 }
 
 function levelPrice(v){
@@ -314,7 +320,7 @@ async function refresh(){
   const hs = await fetch('/api/history?limit=220').then(r=>r.json());
   const ob = await fetch('/api/orderbook').then(r=>r.json()).catch(()=>({}));
   latest = s; history = hs;
-  document.getElementById('stamp').textContent = `tick ${s.tick ?? '-'} | ${s.mode ?? '-'} | ${s.trading_venue ?? '-'}`;
+  document.getElementById('stamp').textContent = `tick ${s.tick ?? '-'} | ${s.mode ?? '-'} | ${s.trading_venue ?? '-'} | budget $${fmt(s.budget_usd ?? s.starting_cash ?? 0,2)}`;
   renderKPIs(s);
   renderSignals(s);
   renderPositions(s);
