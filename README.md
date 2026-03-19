@@ -1,33 +1,23 @@
-# AI Trader OS (Paper/Live Parity)
+# AIG Trader OS (Drift + Solana / Paper-Live Parity)
 
-Autonomous crypto trading runtime with one shared accounting engine for both paper and live fills, so win/loss metrics are computed consistently.
+Autonomous trader with one shared accounting engine for both paper and live fills.
+Now includes an agentic LLM brain module for per-cycle LONG/SHORT/HOLD decisions.
 
-## What changed
+## Current live path
 
-- Paper and live now pass through the same `PortfolioEngine.apply_fill(...)` logic.
-- PnL, win rate, fees, and trade counts use a single formula regardless of mode.
-- Paper fill model includes configurable slippage and fees.
-- Live mode uses Binance spot market orders and normalizes exchange fills into the same `TradeFill` format.
+- Recommended venue for true long/short: `drift_gateway`
+- Spot fallback venue: `solana_jupiter`
+- Market discovery: DexScreener (Solana pairs)
+- Execution:
+  - `drift_gateway`: perp orders (long + short)
+  - `solana_jupiter`: swaps (long + flat)
+- Shared PnL engine for paper/live parity
+- Directional behavior:
+  - Live on Drift gateway: LONG / SHORT
+  - Live on Jupiter spot: LONG / FLAT
+  - Paper mode: LONG / SHORT
 
-## Core parity model
-
-Both modes write fills as:
-
-- `symbol`
-- `side` (`BUY`/`SELL`)
-- `qty`
-- `avg_price`
-- `fee_usd`
-- `order_id`
-- `source`
-
-Then accounting computes:
-
-- Entry basis: `qty * entry_price + entry_fee`
-- Exit proceeds: `qty * exit_price - exit_fee`
-- Realized PnL: `exit_proceeds - entry_basis`
-
-## Quick start (paper)
+## Quick start
 
 ```bash
 cd /workspaces/AI
@@ -38,18 +28,41 @@ cp .env.example .env
 python src/bot.py
 ```
 
-## Live mode guardrails
-
-Set all of these first:
+## Live mode (Solana)
 
 ```env
 BOT_MODE=live
+TRADING_VENUE=solana_jupiter
 LIVE_TRADING_ACK=I_UNDERSTAND_LIVE_RISK
-EXCHANGE_API_KEY=...
-EXCHANGE_API_SECRET=...
+SOLANA_RPC_URL=...
+JUPITER_API_KEY=...
+SOLANA_WALLET_ADDRESS=...
+SOLANA_WALLET_PRIVATE_KEY=...
 ```
 
-Without the exact ACK phrase, live mode is blocked.
+## Live mode (Drift long/short)
+
+```env
+BOT_MODE=live
+TRADING_VENUE=drift_gateway
+LIVE_TRADING_ACK=I_UNDERSTAND_LIVE_RISK
+DRIFT_GATEWAY_URL=...
+DRIFT_API_KEY=...
+DRIFT_MARKET_SYMBOL=SOL
+DRIFT_MARKET_INDEX=0
+```
+
+## Agent brain config
+
+```env
+BRAIN_ENABLED=1
+BRAIN_PROVIDER=local
+BRAIN_MODEL=qwen2.5:7b-instruct
+LOCAL_BRAIN_URL=http://127.0.0.1:11434
+```
+
+Fallback behavior:
+- If the LLM is unavailable or returns invalid JSON, the bot falls back to heuristic decisions and logs that fallback in `logs/brain_memory.jsonl`.
 
 ## OpenClaw hook
 
@@ -57,32 +70,10 @@ Without the exact ACK phrase, live mode is blocked.
 python src/openclaw_task.py
 ```
 
-Reads `logs/latest_cycle.json` and outputs compact JSON for orchestration.
+## Render deploy
 
-## Deploy on Render (worker)
-
-This repo includes [render.yaml](/workspaces/AI/render.yaml) for Blueprint deployment.
-
-1. Push this repo to GitHub.
-2. In Render, choose `New +` -> `Blueprint`.
-3. Select the repo and deploy.
-4. Service type is `worker` and starts with `./scripts/start_worker.sh`.
-
-Check status/log output:
-
-```bash
-python src/openclaw_task.py
-python src/render_health.py
-```
-
-Live mode is intentionally blocked unless you set:
-
-```env
-BOT_MODE=live
-LIVE_TRADING_ACK=I_UNDERSTAND_LIVE_RISK
-EXCHANGE_API_KEY=...
-EXCHANGE_API_SECRET=...
-```
+- Blueprint file: `render.yaml`
+- Worker start script: `scripts/start_worker.sh`
 
 ## Runtime outputs
 
@@ -91,5 +82,17 @@ EXCHANGE_API_SECRET=...
 
 ## Notes
 
-- Keep paper mode until you have enough forward-test data.
+- Keep paper mode until forward tests are stable.
 - This is experimental software and not financial advice.
+
+
+## Local brain (free)
+
+```env
+BRAIN_ENABLED=1
+BRAIN_PROVIDER=local
+LOCAL_BRAIN_URL=http://127.0.0.1:11434
+LOCAL_BRAIN_MODEL=qwen2.5:7b-instruct
+```
+
+Works with Ollama (`/api/chat`) or OpenAI-compatible local endpoints (`/v1/chat/completions`).

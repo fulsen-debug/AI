@@ -10,6 +10,26 @@ services:
     envVars:
       - key: BOT_MODE
         value: paper
+      - key: TRADING_VENUE
+        value: drift_gateway
+      - key: SOL_ONLY_MODE
+        value: "1"
+      - key: ALLOW_PAPER_SHORTS
+        value: "1"
+      - key: APP_NAME
+        value: AIG Trader OS
+      - key: LOG_DIR
+        value: /var/data/logs
+      - key: BRAIN_ENABLED
+        value: "1"
+      - key: BRAIN_PROVIDER
+        value: openai
+      - key: BRAIN_MODEL
+        value: gpt-4o-mini
+      - key: BRAIN_TEMPERATURE
+        value: "0.2"
+      - key: BRAIN_MAX_MEMORY_ITEMS
+        value: "25"
       - key: BUDGET_USD
         value: "50"
       - key: SCAN_INTERVAL
@@ -32,15 +52,25 @@ services:
         value: "0.008"
       - key: SELL_THRESHOLD
         value: "-0.006"
-      - key: QUOTE_ASSET
-        value: USDT
       - key: TOP_N_MARKETS
         value: "25"
       - key: CANDIDATES_PER_CYCLE
         value: "6"
       - key: MIN_QUOTE_VOLUME_USD
-        value: "5000000"
+        value: "500000"
       - key: PAPER_FEE_BPS
         value: "10"
       - key: PAPER_SLIPPAGE_BPS
         value: "5"
+      - key: SOLANA_RPC_FALLBACK_URLS
+        value: https://api.mainnet-beta.solana.com
+      - key: JUPITER_SLIPPAGE_BPS
+        value: "50"
+      - key: DRIFT_MARKET_SYMBOL
+        value: SOL
+      - key: DRIFT_MARKET_INDEX
+        value: "0"
+      - key: DRIFT_TAKER_FEE_BPS
+        value: "10"
+      - key: DRIFT_ESTIMATED_TX_FEE_USD
+        value: "0.02"
