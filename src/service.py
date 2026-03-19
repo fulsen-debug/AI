@@ -48,11 +48,12 @@ HTML = """
     .pill .k { color: var(--muted); font-size:11px; }
     .pill .v { color: var(--cyan); font-size:15px; margin-top:2px; }
 
-    .layout { display:grid; grid-template-columns: 1.15fr .85fr; gap:10px; }
+    .layout { display:grid; grid-template-columns: 1.25fr .75fr; gap:10px; }
     .card { border:1px solid var(--line); border-radius:12px; background: linear-gradient(180deg, #0d1422, #0b111d); padding:10px; }
     .card h3 { margin:2px 0 8px; color: var(--amber); font-size:14px; letter-spacing:.6px; }
 
     .chart-wrap { position:relative; height:260px; border:1px solid #16243b; border-radius:10px; background:#050c18; overflow:hidden; }
+    .signal-chart-wrap { height:420px; }
     canvas { display:block; width:100%; height:100%; }
 
     .right-grid { display:grid; grid-template-rows: 1fr 1fr; gap:10px; }
@@ -99,7 +100,7 @@ HTML = """
     <div class=\"layout\">
       <div class=\"card\">
         <h3>SIGNAL FLOW ENGINE</h3>
-        <div class=\"chart-wrap\"><canvas id=\"flowCanvas\"></canvas></div>
+        <div class=\"chart-wrap signal-chart-wrap\"><canvas id=\"flowCanvas\"></canvas></div>
         <div style=\"margin-top:8px\">
           <table>
             <thead><tr><th>Symbol</th><th>Price</th><th>Score</th><th>Conf</th><th>Vol</th><th>Action Bias</th></tr></thead>
@@ -111,7 +112,7 @@ HTML = """
       <div class=\"right-grid\">
         <div class=\"card\">
           <h3>PNL CURVE</h3>
-          <div class=\"chart-wrap\" style=\"height:180px\"><canvas id=\"pnlCanvas\"></canvas></div>
+          <div class=\"chart-wrap\" style=\"height:220px\"><canvas id=\"pnlCanvas\"></canvas></div>
           <div style=\"margin-top:8px\">
             <table>
               <thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Entry</th><th>Mark</th></tr></thead>
@@ -154,12 +155,14 @@ function renderKPIs(s){
   const kpi = document.getElementById('kpi');
   const wr = ((s.win_rate||0)*100).toFixed(1) + '%';
   const status = s.kill_switch ? 'HALTED' : 'ACTIVE';
+  const exec = (s.mode || 'paper').toUpperCase();
   kpi.innerHTML = `
     <div class='pill'><div class='k'>EQUITY</div><div class='v'>$${fmt(s.equity,2)}</div></div>
     <div class='pill'><div class='k'>CASH</div><div class='v'>$${fmt(s.cash,2)}</div></div>
     <div class='pill'><div class='k'>REALIZED</div><div class='v'>$${fmt(s.realized_pnl,2)}</div></div>
     <div class='pill'><div class='k'>FEES</div><div class='v'>$${fmt(s.total_fees,2)}</div></div>
     <div class='pill'><div class='k'>WIN RATE</div><div class='v'>${wr}</div></div>
+    <div class='pill'><div class='k'>EXECUTION</div><div class='v'>${exec}</div></div>
     <div class='pill'><div class='k'>STATUS</div><div class='v'>${status}</div></div>
   `;
 }
