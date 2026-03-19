@@ -317,7 +317,8 @@ class AgentBrain:
         return decisions
 
     def decide(self, signals: List[MarketSignal], positions: Dict[str, Position], portfolio: "PortfolioEngine") -> Dict[str, dict]:
-        has_short = self.cfg.trading_venue in {"drift_gateway"} or self.cfg.mode == "paper"
+        # Keep paper/live behavior aligned to actual venue capability.
+        has_short = self.cfg.trading_venue in {"drift_gateway"}
         if not self.cfg.brain_enabled:
             return self._heuristic_decisions(signals, has_short)
 
@@ -1349,8 +1350,8 @@ class BotApp:
                     if len(self.portfolio.positions) >= self.cfg.max_positions and not pos:
                         self.log(f"hold {symbol}: max positions reached")
                         continue
-                    if not self.cfg.allow_paper_shorts and self.cfg.trading_venue != "drift_gateway":
-                        self.log(f"short disabled {symbol}: ALLOW_PAPER_SHORTS=0")
+                    if self.cfg.trading_venue != "drift_gateway":
+                        self.log(f"short disabled {symbol}: venue does not support short")
                         continue
                     if pos and pos.side == "LONG":
                         self.execute_exit(symbol, pos.qty, signal.price, f"{reason}|flip_to_short")
