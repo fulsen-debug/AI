@@ -19,4 +19,12 @@ if [[ "${BOT_MODE:-paper}" == "live" ]] && [[ "${LIVE_TRADING_ACK:-}" != "I_UNDE
   exit 1
 fi
 
+# Render web services always provide PORT. If this script is accidentally
+# configured as Start Command on a web service, run the web dashboard so
+# Render can detect an open HTTP port.
+if [[ -n "${PORT:-}" ]] || [[ "${RUN_AS_WEB:-0}" == "1" ]]; then
+  mkdir -p "${LOG_DIR:-logs}"
+  exec python src/service.py
+fi
+
 exec python src/bot.py
