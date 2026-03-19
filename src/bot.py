@@ -125,6 +125,9 @@ class Config:
     local_brain_model: str = "qwen2.5:7b-instruct"
     local_brain_api_key: str = ""
     llm_exit_control: bool = True
+    scalp_mode: bool = True
+    scalp_min_score: float = 0.0012
+    scalp_max_hold_minutes: int = 8
 
 
 class Strategy:
@@ -1202,7 +1205,8 @@ class BotApp:
                     else:
                         self.execute_exit(symbol, pos.qty, mark, "take_profit")
                     continue
-            if age_mins >= self.cfg.max_position_age_minutes:
+            max_age_mins = self.cfg.scalp_max_hold_minutes if self.cfg.scalp_mode else self.cfg.max_position_age_minutes
+            if age_mins >= max_age_mins:
                 if pos.side == "SHORT":
                     self.execute_close_short(symbol, pos.qty, mark, "max_age")
                 else:
@@ -1276,6 +1280,8 @@ class BotApp:
             "trading_venue": self.cfg.trading_venue,
             "fixed_trade_usd": self.cfg.fixed_trade_usd,
             "llm_exit_control": self.cfg.llm_exit_control,
+            "scalp_mode": self.cfg.scalp_mode,
+            "scalp_min_score": self.cfg.scalp_min_score,
             "kill_switch": self.kill_switch,
             "starting_cash": self.portfolio.starting_cash,
             "budget_usd": self.cfg.budget_usd,
@@ -1361,6 +1367,14 @@ class BotApp:
                 size_fraction = max(0.0, min(0.25, size_fraction))
                 reason = str(d.get("reason", "brain"))
                 pos = self.portfolio.positions.get(symbol)
+
+                if self.cfg.scalp_mode and action == "HOLD" and not pos and abs(signal.score) >= self.cfg.scalp_min_score:
+                    if signal.score > 0:
+                        action = "LONG"
+                        reason = f"scalp_override|score={signal.score:+.4f}"
+                    elif self.cfg.trading_venue == "drift_gateway":
+                        action = "SHORT"
+                        reason = f"scalp_override|score={signal.score:+.4f}"
 
                 if action == "LONG":
                     if len(self.portfolio.positions) >= self.cfg.max_positions and not pos:
@@ -1618,6 +1632,9 @@ def load_config() -> Config:
         local_brain_model=os.getenv("LOCAL_BRAIN_MODEL", "qwen2.5:7b-instruct"),
         local_brain_api_key=os.getenv("LOCAL_BRAIN_API_KEY", ""),
         llm_exit_control=parse_bool("LLM_EXIT_CONTROL", True),
+        scalp_mode=parse_bool("SCALP_MODE", True),
+        scalp_min_score=parse_float("SCALP_MIN_SCORE", 0.0012),
+        scalp_max_hold_minutes=parse_int("SCALP_MAX_HOLD_MINUTES", 8),
     )
 
 

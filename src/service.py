@@ -554,7 +554,7 @@ async function refresh(){
   latest = s; history = hs;
   const ms = document.getElementById('modeSelect');
   if(ms && s.mode && ms.value !== s.mode) ms.value = s.mode;
-  document.getElementById('stamp').textContent = `tick ${s.tick ?? '-'} | ${s.mode ?? '-'} | ${s.trading_venue ?? '-'} | ${(s.engine_running ? 'RUNNING' : 'PAUSED')} | budget $${fmt(s.budget_usd ?? s.starting_cash ?? 0,2)} | entry $${fmt(s.fixed_trade_usd ?? 0,2)} | llm-exit ${s.llm_exit_control ? 'on' : 'off'}`;
+  document.getElementById('stamp').textContent = `tick ${s.tick ?? '-'} | ${s.mode ?? '-'} | ${s.trading_venue ?? '-'} | ${(s.engine_running ? 'RUNNING' : 'PAUSED')} | budget $${fmt(s.budget_usd ?? s.starting_cash ?? 0,2)} | entry $${fmt(s.fixed_trade_usd ?? 0,2)} | llm-exit ${s.llm_exit_control ? 'on' : 'off'} | scalp ${s.scalp_mode ? 'on' : 'off'}`;
   renderKPIs(s);
   renderSignals(s);
   renderPositions(s);
