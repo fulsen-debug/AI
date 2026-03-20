@@ -37,6 +37,8 @@ services:
         value: "20"
       - key: RISK_PER_TRADE
         value: "0.15"
+      - key: FIXED_TRADE_USD
+        value: "50"
       - key: MAX_POSITIONS
         value: "4"
       - key: STOP_LOSS_PCT

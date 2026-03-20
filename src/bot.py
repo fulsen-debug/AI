@@ -77,7 +77,7 @@ class Config:
     budget_usd: float = 50.0
     scan_interval: int = 20
     risk_per_trade: float = 0.15
-    fixed_trade_usd: float = 5.0
+    fixed_trade_usd: float = 50.0
     max_positions: int = 4
     buy_threshold: float = 0.008
     sell_threshold: float = -0.006
@@ -1586,7 +1586,7 @@ def load_config() -> Config:
         budget_usd=parse_float("BUDGET_USD", 50.0),
         scan_interval=parse_int("SCAN_INTERVAL", 20),
         risk_per_trade=parse_float("RISK_PER_TRADE", 0.15),
-        fixed_trade_usd=parse_float("FIXED_TRADE_USD", 5.0),
+        fixed_trade_usd=parse_float("FIXED_TRADE_USD", 50.0),
         max_positions=parse_int("MAX_POSITIONS", 4),
         buy_threshold=parse_float("BUY_THRESHOLD", 0.008),
         sell_threshold=parse_float("SELL_THRESHOLD", -0.006),
